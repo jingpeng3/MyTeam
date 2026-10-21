@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
+
+# 原子写的临时文件（进程中途被杀时残留：<file>.<pid>.<uuid>.tmp）
+*.tmp
+
+# Lock files for concurrent read-modify-write (team.yaml.lock, <job>.json.lock ...)
+*.lock
+# uv 依赖锁文件要入库（与上面的并发锁侧文件区分）
+!uv.lock
+
+# Runtime state written by the coordinator (keep dir skeletons via .gitkeep)
+coordinator/state/jobs/
+coordinator/state/*.json
+shared/artifacts/*
+!shared/artifacts/.gitkeep
+shared/bus/*
+!shared/bus/.gitkeep
+run.log
+
+# Per-instance plan 填槽值文件（--vars-file 的一次性参数，非模板）；保留目录骨架
+coordinator/plans/vars/*
+!coordinator/plans/vars/.gitkeep
+
+# Per-agent runtime signal/log dirs (auto-created on demand by the coordinator/worker)
+agents/*/inbox/
+agents/*/outbox/
+agents/*/logs/
+# worker 的按任务独占临时 cwd（<goal_id>__<task_id>/，任务结束即清）；基座 workspace 的 CLAUDE.md/知识沉淀仍入库
+agents/*/workspace/*__*/
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+
+# 个人本地设置（勿提交；不依赖各人的全局 gitignore）
+.claude/settings.local.json
+
+# playwright-cli 浏览器会话/登录态（含 cookie，勿提交）
+.playwright/
+.playwright-cli/
+
+# popo 平台本地配置（含凭证，勿提交）
+.popo.json
+# popo skill 是个人发布工具、与框架无关，不随仓库分发（各人按需全局安装）
+.claude/skills/popo/

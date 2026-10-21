@@ -1,0 +1,1451 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TEAMS · CONTROL</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap" rel="stylesheet">
+<style>
+/* Claude Code Docs theme (code.claude.com/docs) — warm cream editorial.
+   Palette/type ported from page-style-scout lib: code-claude-com-20260924.
+   Real values: cream #fdfdf7 canvas, near-black #0e0e0e ink, clay #d4a27f accent,
+   true-neutral gray ramp; Anthropic Sans (→Inter) body, serif display headings. */
+:root{
+  --void:#f6f5ee; --bg:#fdfdf7; --bg2:#f6f5ee;
+  --panel:#ffffff; --panel-solid:#ffffff; --sunken:#f6f5ee;
+  --line:#e7e3d7; --line-bright:#d4a27f;
+  --ink:#0e0e0e; --soft:#3e3e3e; --dim:#707070; --faint:#9e9e9e;
+  --cyan:#d4a27f; --beam:#bb7f57; --gold:#b5893f;
+  --done:#2f855a; --run:#2563eb; --fail:#d64545; --skip:#9e9e9e; --ready:#4a90d9; --pend:#bcb6a8;
+  --bypass:#8257e6; --reject:#dd7230; --await:#ca8a04; --fan:#2c9a8f;
+  --glow:0 1px 2px rgba(14,14,14,.04), 0 6px 20px -12px rgba(14,14,14,.14);
+  --mono:"paperMono",ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+  --sans:"Anthropic Sans","Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  --serif:"Anthropic Serif Display","Newsreader",Georgia,"Times New Roman",serif;
+  --disp:var(--sans);
+  --on-bg:var(--ink); --on-fg:var(--panel);   /* 选中态分段按钮：亮=黑底白字，暗=白底黑字（随主题反相） */
+}
+/* 暗色主题：Claude Code Docs dark（近黑 #09090b 画布 + 陶土强调，暖中性灰阶）。
+   仅翻转变量值 + 少量表面/状态色；结构规则复用同一套。切换见 toggleTheme()。 */
+body.dark{
+  --void:#0a0a0c; --bg:#09090b; --bg2:#0c0c0f;
+  --panel:#161619; --panel-solid:#161619; --sunken:#1c1c21;
+  --line:#2a2a30; --line-bright:#d4a27f;
+  --ink:#f5f4ef; --soft:#c7c4bb; --dim:#8f8b81; --faint:#5f5c55;
+  --cyan:#d4a27f; --beam:#e0b48f; --gold:#d8b25e;
+  --done:#4ade80; --run:#60a5fa; --fail:#fb7185; --skip:#71717a; --ready:#93c5fd; --pend:#52525b;
+  --bypass:#c4b5fd; --reject:#fb923c; --await:#fbbf24; --fan:#5eead4;
+  --glow:0 1px 2px rgba(0,0,0,.5), 0 8px 26px -14px rgba(0,0,0,.75);
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{
+  font-family:var(--sans); color:var(--ink); background:var(--bg);
+  background-image:
+    radial-gradient(1200px 620px at 84% -12%, rgba(212,162,127,.10), transparent 60%),
+    radial-gradient(900px 560px at 6% 110%, rgba(212,162,127,.05), transparent 55%);
+  background-attachment:fixed;
+  -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+  min-height:100%; overflow-x:hidden;
+}
+/* editorial: no blueprint grid / scanlines (kept clean per Claude Docs look) */
+body::before{ content:none; }
+body::after{ content:none; }
+.wrap{position:relative; z-index:1; max-width:1500px; margin:0 auto; padding:26px 30px 72px}
+
+/* ---------- header ---------- */
+.top{display:flex; align-items:flex-end; justify-content:space-between; gap:20px;
+  padding-bottom:18px; border-bottom:1px solid var(--line); margin-bottom:24px}
+.brand{display:flex; align-items:center; gap:14px}
+.mark{width:40px; height:40px; position:relative; flex:0 0 auto}
+.mark i{position:absolute; inset:0; border:1.5px solid var(--line-bright); border-radius:9px;
+  background:rgba(212,162,127,.10)}
+.mark i::after{content:""; position:absolute; inset:6px; border:1px solid rgba(212,162,127,.5); border-radius:5px}
+.mark b{position:absolute; inset:0; display:grid; place-items:center; font-family:var(--serif);
+  font-weight:600; color:var(--beam); font-size:19px}
+.title h1{font-family:var(--serif); font-weight:600; font-size:27px; margin:0; letter-spacing:-.01em;
+  color:var(--ink)}
+.title h1 span{color:var(--line-bright); margin:0 2px}
+.title p{margin:4px 0 0; font-size:10.5px; color:var(--dim); letter-spacing:.22em; text-transform:uppercase}
+.status-strip{display:flex; align-items:center; gap:18px; font-size:12px}
+.theme-btn{font-family:var(--sans); font-size:11px; letter-spacing:.04em; color:var(--soft);
+  background:var(--sunken); border:1px solid var(--line); border-radius:7px; padding:5px 11px;
+  cursor:pointer; transition:color .15s,border-color .15s,background .15s}
+.theme-btn:hover{color:var(--ink); border-color:var(--line-bright)}
+.clock{font-family:var(--serif); font-weight:500; font-size:26px; color:var(--ink);
+  letter-spacing:.01em; font-variant-numeric:tabular-nums}
+.beat{display:flex; align-items:center; gap:8px; color:var(--dim); font-size:11px; letter-spacing:.08em}
+.dot{width:9px; height:9px; border-radius:50%; background:var(--done);
+  box-shadow:0 0 0 0 rgba(47,133,90,.5); animation:beat 1.9s infinite}
+.dot.stale{background:var(--gold); animation-duration:.9s}
+.dot.dead{background:var(--fail); animation:none}
+@keyframes beat{0%{box-shadow:0 0 0 0 rgba(187,127,87,.4)}70%{box-shadow:0 0 0 8px rgba(187,127,87,0)}100%{box-shadow:0 0 0 0 rgba(187,127,87,0)}}
+
+/* ---------- panels (clean editorial cards) ---------- */
+.panel{position:relative; background:var(--panel);
+  border:1px solid var(--line); border-radius:10px; box-shadow:var(--glow)}
+.panel::before,.panel::after{content:none}
+.phead{display:flex; align-items:center; justify-content:space-between; gap:10px;
+  padding:13px 16px; border-bottom:1px solid var(--line)}
+.phead h2{margin:0; font-family:var(--sans); font-weight:600; font-size:11.5px; letter-spacing:.16em;
+  text-transform:uppercase; color:var(--dim)}
+.phead h2::before{content:""; display:inline-block; width:6px; height:6px; border-radius:2px;
+  background:var(--line-bright); margin-right:9px; vertical-align:middle}
+.tag{font-size:10.5px; color:var(--beam); border:1px solid var(--line-bright); border-radius:6px;
+  padding:2px 9px; letter-spacing:.06em; background:rgba(212,162,127,.10)}
+/* segmented filter in panel head */
+.filt{display:flex; gap:6px}
+.fbtn{font-family:var(--sans); font-size:10.5px; letter-spacing:.06em; text-transform:uppercase;
+  color:var(--dim); background:var(--sunken); border:1px solid var(--line); border-radius:6px;
+  padding:4px 10px; cursor:pointer; display:flex; align-items:center; gap:6px; transition:color .15s,border-color .15s,background .15s}
+.fbtn:hover{color:var(--soft); border-color:var(--line-bright)}
+.fbtn.on{color:var(--on-fg); border-color:var(--ink); background:var(--on-bg)}
+.fbtn i{font-style:normal; font-size:10px; color:var(--faint); font-variant-numeric:tabular-nums}
+.fbtn.on i{color:var(--on-fg); opacity:.72}
+/* jobs 工具条：搜索 + 排序 */
+.jtoolbar{display:flex; align-items:center; gap:10px; padding:11px 16px; border-bottom:1px solid var(--line); flex-wrap:wrap}
+.jsearch{flex:1 1 180px; min-width:140px; height:32px; padding:0 12px; border-radius:8px;
+  border:1px solid var(--line); background:var(--panel); color:var(--ink); font-family:var(--sans); font-size:12.5px;
+  transition:border-color .15s, box-shadow .15s}
+.jsearch::placeholder{color:var(--faint)}
+.jsearch:focus{outline:none; border-color:var(--line-bright); box-shadow:0 0 0 3px rgba(212,162,127,.16)}
+.jsort{flex:0 0 auto}
+.jmore{margin:4px 12px 10px; padding:9px 12px; text-align:center; cursor:pointer;
+  font-size:11px; letter-spacing:.04em; color:var(--dim); background:var(--sunken);
+  border:1px solid var(--line); border-radius:8px; transition:color .15s,border-color .15s,background .15s}
+.jmore:hover{color:var(--ink); border-color:var(--line-bright); background:var(--panel)}
+.pager{display:flex; align-items:center; justify-content:center; gap:10px; padding:9px 12px 11px}
+.pager button{font-family:var(--sans); font-size:11px; padding:3px 10px; cursor:pointer; color:var(--dim);
+  background:transparent; border:1px solid var(--line); border-radius:6px; transition:color .15s,border-color .15s}
+.pager button:hover:not(:disabled){color:var(--ink); border-color:var(--line-bright)}
+.pager button:disabled{opacity:.35; cursor:default}
+.pager span{font-size:11px; color:var(--dim); font-variant-numeric:tabular-nums}
+
+/* ---------- KPI tiles ---------- */
+.kpis{display:grid; grid-template-columns:repeat(8,1fr); gap:12px; margin-bottom:24px}
+.kpi{position:relative; padding:16px 17px 15px; overflow:hidden}
+.kpi .n{font-family:var(--serif); font-weight:500; font-size:36px; line-height:1;
+  color:var(--ink); font-variant-numeric:tabular-nums}
+.kpi .l{margin-top:9px; font-size:10.5px; letter-spacing:.12em; text-transform:uppercase; color:var(--dim)}
+.kpi .bar{position:absolute; left:0; bottom:0; height:3px; width:100%; background:var(--accent,var(--line-bright)); opacity:.9}
+.kpi.k-run .n{color:var(--run)} .kpi.k-run .bar{background:var(--run)}
+.kpi.k-done .n{color:var(--done)} .kpi.k-done .bar{background:var(--done)}
+.kpi.k-fail .n{color:var(--fail)} .kpi.k-fail .bar{background:var(--fail)}
+.kpi.k-reject .n{color:var(--reject)} .kpi.k-reject .bar{background:var(--reject)}
+.kpi.k-reject .l em{font-style:normal; color:var(--await); margin-left:6px}
+.kpi.k-await .n{color:var(--await)} .kpi.k-await .bar{background:var(--await)}
+.kpi.k-await.hot .n::after{content:""; display:inline-block; width:8px; height:8px; margin-left:8px;
+  border-radius:50%; background:var(--await); box-shadow:0 0 0 3px rgba(202,138,4,.16); animation:beat 1.6s infinite; vertical-align:middle}
+.kpi.k-run .n::after{content:""; display:inline-block; width:8px; height:8px; margin-left:8px;
+  border-radius:50%; background:var(--run); box-shadow:0 0 0 3px rgba(37,99,235,.16); animation:beat 1.4s infinite; vertical-align:middle}
+
+/* ---------- main grid ---------- */
+.grid{display:grid; grid-template-columns:minmax(0,1fr) 372px; gap:18px; align-items:start}
+.col{display:flex; flex-direction:column; gap:18px}
+.pbody{padding:15px}
+
+/* ---------- job cards ---------- */
+.job{position:relative; padding:15px 16px 16px; border-bottom:1px solid var(--line)}
+.job:last-child{border-bottom:0}
+.job.done{opacity:.6}
+.job .jrow{display:flex; align-items:baseline; justify-content:space-between; gap:12px}
+.job .gid{font-family:var(--serif); font-weight:600; font-size:16px; color:var(--ink); letter-spacing:0}
+.job .gid b{color:var(--line-bright); margin-right:7px; font-weight:600}
+.job .goal{margin:6px 0 12px; font-size:12px; color:var(--soft); line-height:1.55;
+  max-width:70ch; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden}
+.badge{font-size:10px; letter-spacing:.08em; text-transform:uppercase; padding:3px 9px; border-radius:6px; white-space:nowrap}
+.badge.ok{color:var(--done); border:1px solid rgba(47,133,90,.35); background:rgba(47,133,90,.10)}
+.badge.fail{color:var(--fail); border:1px solid rgba(214,69,69,.35); background:rgba(214,69,69,.10)}
+.badge.live{color:var(--run); border:1px solid rgba(37,99,235,.35); background:rgba(37,99,235,.09)}
+.badge.reject{color:var(--reject); border:1px solid rgba(221,114,48,.4); background:rgba(221,114,48,.10)}
+.badge.esc{color:var(--await); border:1px solid rgba(202,138,4,.42); background:rgba(202,138,4,.12)}
+/* 「需要人决策」徽标：worker 停下等人答复（非打回升级）。琥珀色、带 🙋 图标、轻微呼吸，一眼区分于 esc 的 ⚠ 待裁决 */
+.badge.human{color:var(--await); border:1px solid rgba(202,138,4,.42); background:rgba(202,138,4,.07); animation:beat 2s infinite}
+/* pipeline of task chips */
+.pipe{display:flex; flex-wrap:wrap; gap:7px}
+.chip{position:relative; display:flex; align-items:center; gap:7px; padding:6px 10px 6px 9px;
+  border:1px solid var(--line); border-radius:7px; background:var(--sunken); min-width:0}
+.chip .st{width:8px; height:8px; border-radius:2px; flex:0 0 auto; background:var(--pend)}
+.chip .tid{font-family:var(--mono); font-weight:500; font-size:11.5px; color:var(--ink)}
+.chip .who{font-size:10.5px; color:var(--dim); max-width:120px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.chip .el{font-size:10px; color:var(--run); letter-spacing:.04em}
+.chip[data-s=done] .st{background:var(--done)} .chip[data-s=done]{border-color:rgba(47,133,90,.3)}
+.chip[data-s=failed] .st{background:var(--fail)} .chip[data-s=failed]{border-color:rgba(214,69,69,.38)}
+.chip[data-s=skipped]{opacity:.5} .chip[data-s=skipped] .st{background:var(--skip)}
+.chip[data-s=bypassed]{opacity:.72} .chip[data-s=bypassed] .st{background:var(--bypass)}
+.chip[data-s=bypassed]{border-color:rgba(130,87,230,.34)}
+.chip[data-s=ready] .st{background:var(--ready)}
+.chip[data-s=dispatched]{border-color:rgba(37,99,235,.42); background:rgba(37,99,235,.06)}
+.chip[data-s=awaiting_input] .st{background:var(--await)} .chip[data-s=awaiting_input]{border-color:rgba(202,138,4,.42); background:rgba(202,138,4,.07)}
+.chip .rej{font-size:9.5px; color:var(--reject); font-weight:700; letter-spacing:.02em}
+.chip[data-s=dispatched] .st{background:var(--run); box-shadow:0 0 0 3px rgba(37,99,235,.16); animation:beat 1.5s infinite}
+.chip[data-s=dispatched]::after{content:""; position:absolute; inset:0; border-radius:7px;
+  border:1px solid rgba(37,99,235,.28); animation:sweep 2.4s linear infinite; pointer-events:none}
+@keyframes sweep{0%{opacity:.12}50%{opacity:.5}100%{opacity:.12}}
+
+/* ---------- agents ---------- */
+.agent{padding:12px 15px; border-bottom:1px solid var(--line)}
+.agent:last-child{border-bottom:0}
+.agent .arow{display:flex; align-items:center; justify-content:space-between; gap:10px}
+.agent .name{font-family:var(--sans); font-weight:600; font-size:13.5px; color:var(--ink)}
+.agent .role{font-size:10.5px; color:var(--dim); margin-top:2px}
+.agent .caps{display:flex; flex-wrap:wrap; gap:5px; margin-top:9px}
+.cap{font-size:10px; color:var(--soft); padding:2px 8px; border:1px solid var(--line); border-radius:5px; letter-spacing:.02em; background:var(--sunken)}
+.load{display:flex; gap:4px; align-items:center}
+.load i{width:8px; height:16px; border-radius:2px; background:rgba(14,14,14,.06); border:1px solid var(--line)}
+.load i.on{background:var(--run); border-color:var(--run); box-shadow:0 0 0 2px rgba(37,99,235,.14)}
+.load span{font-size:10.5px; color:var(--dim); margin-left:4px}
+
+/* ---------- inflight ---------- */
+.fly{display:flex; align-items:center; gap:10px; padding:8px 14px; border-bottom:1px solid var(--line); transition:background .15s}
+.fly:last-child{border-bottom:0}
+.fly .rk{font-family:var(--serif); font-weight:600; font-size:14px; color:var(--faint); width:22px}
+.fly .who{font-weight:600; font-size:12.5px; color:var(--ink)} .fly .who b{color:var(--line-bright)}
+.fly .meta{font-size:10.5px; color:var(--dim); margin-top:1px}
+.fly .el{margin-left:auto; font-family:var(--mono); font-weight:500; font-size:13px; color:var(--run); font-variant-numeric:tabular-nums}
+
+/* ---------- event log ---------- */
+.log{margin-top:0}
+.stream{max-height:210px; overflow:auto; padding:6px 0}
+.ev{display:flex; gap:12px; padding:5px 15px; font-size:11.5px; border-left:2px solid transparent}
+.ev:hover{background:rgba(212,162,127,.08)}
+.ev .t{color:var(--faint); flex:0 0 66px; font-family:var(--mono); font-variant-numeric:tabular-nums}
+.ev .k{flex:0 0 156px; font-weight:600; letter-spacing:.02em; color:var(--soft)}
+.ev .d{color:var(--dim); min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.ev.done{border-left-color:var(--done)} .ev.done .k{color:var(--done)}
+.ev.fail{border-left-color:var(--fail)} .ev.fail .k{color:var(--fail)}
+.ev.disp{border-left-color:var(--run)} .ev.disp .k{color:var(--run)}
+.ev.warn{border-left-color:var(--gold)} .ev.warn .k{color:var(--gold)}
+
+.empty{padding:40px 20px; text-align:center; color:var(--dim); font-size:12.5px; letter-spacing:.02em}
+.empty::before{content:"◇"; display:block; font-size:24px; color:var(--line-bright); margin-bottom:10px}
+
+/* stagger reveal */
+@keyframes rise{from{opacity:0; transform:translateY(10px)}to{opacity:1; transform:none}}
+.reveal{animation:rise .5s both}
+
+::-webkit-scrollbar{width:8px; height:8px}
+::-webkit-scrollbar-thumb{background:rgba(14,14,14,.18); border-radius:4px}
+::-webkit-scrollbar-track{background:transparent}
+
+@media(max-width:1080px){
+  .grid{grid-template-columns:1fr} .kpis{grid-template-columns:repeat(3,1fr)}
+}
+
+/* ---------- job card is clickable → DAG ---------- */
+.job{cursor:pointer; transition:background .15s}
+.job:hover{background:rgba(212,162,127,.08)}
+.job .open-dag{font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:var(--dim);
+  border:1px solid var(--line); border-radius:6px; padding:2px 8px; white-space:nowrap}
+.job:hover .open-dag{color:var(--beam); border-color:var(--line-bright)}
+
+/* ---------- DAG overlay (单独界面) ---------- */
+.dag-ov{position:fixed; inset:0; z-index:120; display:flex; flex-direction:column;
+  background:var(--bg);
+  animation:rise .28s both}
+.dag-ov::before{content:none}
+.dag-top{position:relative; z-index:1; display:flex; align-items:center; gap:16px;
+  padding:16px 26px; border-bottom:1px solid var(--line)}
+.dag-back{font-family:var(--sans); font-size:12px; letter-spacing:.06em; text-transform:uppercase;
+  color:var(--soft); background:var(--sunken); border:1px solid var(--line); border-radius:7px;
+  padding:7px 13px; cursor:pointer; transition:color .15s,border-color .15s,background .15s}
+.dag-back:hover{color:var(--ink); border-color:var(--line-bright); background:var(--panel)}
+.dag-ttl{min-width:0} .dag-ttl h2{margin:0; font-family:var(--serif); font-weight:600; font-size:19px;
+  letter-spacing:0; color:var(--ink)} .dag-ttl h2 b{color:var(--line-bright); margin-right:8px}
+.dag-ttl p{margin:3px 0 0; font-size:11.5px; color:var(--dim); max-width:90ch; overflow:hidden;
+  text-overflow:ellipsis; white-space:nowrap}
+.dag-body{position:relative; z-index:1; flex:1; display:grid; grid-template-columns:minmax(0,1fr) 340px;
+  gap:0; min-height:0}
+.dag-canvas{overflow:auto; padding:34px 40px}
+.dag-side{border-left:1px solid var(--line); background:var(--panel);
+  padding:18px 18px 28px; overflow:auto}
+/* svg dag nodes */
+.dnode{cursor:pointer}
+.dnode rect{fill:var(--panel); stroke:var(--line); stroke-width:1; rx:6}
+.dnode:hover rect{stroke:var(--line-bright)}
+.dnode.sel rect{stroke:var(--ink); stroke-width:2; filter:drop-shadow(0 2px 6px rgba(14,14,14,.14))}
+.dnode .dn-id{fill:var(--ink); font-family:var(--sans); font-weight:600; font-size:13px}
+.dnode .dn-sub{fill:var(--dim); font-family:var(--mono); font-size:10.5px}
+.dnode .dn-st{font-family:var(--mono); font-size:9.5px; letter-spacing:.08em; text-transform:uppercase}
+.dnode.s-done rect{stroke:rgba(47,133,90,.5)} .dnode.s-done .dn-st{fill:var(--done)}
+.dnode.s-dispatched rect{stroke:rgba(37,99,235,.55)} .dnode.s-dispatched .dn-st{fill:var(--run)}
+.dnode.s-failed rect{stroke:rgba(214,69,69,.55)} .dnode.s-failed .dn-st{fill:var(--fail)}
+.dnode.s-ready .dn-st{fill:var(--ready)} .dnode.s-pending .dn-st{fill:var(--pend)}
+.dnode.s-skipped{opacity:.5} .dnode.s-skipped .dn-st{fill:var(--skip)}
+.dnode.s-bypassed{opacity:.72} .dnode.s-bypassed .dn-st{fill:var(--bypass)}
+.dnode.s-bypassed rect{stroke:rgba(130,87,230,.5); stroke-dasharray:3 3}
+.dnode.s-awaiting_input rect{stroke:rgba(202,138,4,.55)} .dnode.s-awaiting_input .dn-st{fill:var(--await)}
+/* fan-out：待展开模板（青绿描边）+ 背后错位幽灵卡（表示运行期展开成多个）+ ⑃×N 并发上限徽标 */
+.dnode.s-awaiting_expansion rect{stroke:rgba(44,154,143,.55)} .dnode.s-awaiting_expansion .dn-st{fill:var(--fan)}
+.dnode.fanout rect{stroke:rgba(44,154,143,.5); stroke-dasharray:4 3}
+.dnode.fanout:hover rect{stroke:var(--fan)}
+.dnode .dn-ghost{fill:var(--sunken); stroke:rgba(44,154,143,.28); stroke-width:1}
+.dnode .dn-fan{fill:var(--fan); font-family:var(--mono); font-weight:700; font-size:10px}
+.dnode.esc rect{stroke:var(--reject); stroke-width:2; filter:drop-shadow(0 2px 6px rgba(221,114,48,.35))}
+.dnode .dn-rej{fill:var(--reject); font-family:var(--mono); font-weight:700; font-size:10px}
+.dnode .dn-esc{fill:var(--reject); font-size:12px}
+.dedge{fill:none; stroke:var(--faint); stroke-width:1.4}
+.dedge.hot{stroke:var(--run); stroke-width:1.8}
+/* 打回边：评审/校验节点回指其可打回目标，琥珀虚线、绕行以区别于依赖边 */
+.redge{fill:none; stroke:var(--reject); stroke-width:1.3; stroke-dasharray:5 4; opacity:.62}
+.redge.hot{opacity:1; stroke-width:1.8}
+.rlbl{fill:var(--reject); font-family:var(--mono); font-weight:700; font-size:10px}
+/* 数据依赖：跨层继承产物的 needs 不画线；选中节点时以青绿描边标出它的数据来源（供数据）与数据去向（取数据） */
+.dnode.dsrc rect,.dnode.ddst rect{stroke:var(--fan); stroke-width:1.8; stroke-dasharray:2 3}
+.dnode .dn-dtag{display:none; fill:var(--fan); font-family:var(--mono); font-weight:700; font-size:10px}
+.dnode.dsrc .dn-dtag.src,.dnode.ddst .dn-dtag.dst{display:inline}
+.dnode .dn-data{fill:var(--fan); font-family:var(--mono); font-weight:700; font-size:10px}
+.dag-legend{display:flex; gap:16px; flex-wrap:wrap; padding:6px 4px 0; font-family:var(--mono); font-size:10.5px; color:var(--dim)}
+.dag-legend i{display:inline-block; width:22px; height:0; vertical-align:middle; margin-right:6px; border-top:1.6px solid var(--faint)}
+.dag-legend i.rj{border-top:1.4px dashed var(--reject)}
+.dag-legend i.dt{width:14px; height:10px; border:1.6px dashed var(--fan); border-radius:2px}
+/* detail panel */
+.det-h{font-family:var(--serif); font-weight:600; font-size:18px; color:var(--ink); word-break:break-all}
+.det-badge{display:inline-block; font-size:10px; letter-spacing:.08em; text-transform:uppercase;
+  padding:2px 9px; border-radius:6px; margin:8px 0 14px; border:1px solid var(--line)}
+.det-row{display:flex; gap:10px; padding:7px 0; border-bottom:1px solid var(--line); font-size:12px}
+.det-row .k{flex:0 0 78px; color:var(--dim); letter-spacing:.04em; text-transform:uppercase; font-size:10px; padding-top:2px}
+.det-row .v{color:var(--soft); min-width:0; word-break:break-word; line-height:1.5}
+.det-sec{margin-top:16px} .det-sec>h4{margin:0 0 7px; font-family:var(--sans); font-size:11px;
+  letter-spacing:.1em; text-transform:uppercase; color:var(--beam)}
+.det-art{display:block; font-size:11.5px; color:var(--beam); text-decoration:none; padding:6px 9px; margin-bottom:6px;
+  border:1px solid var(--line); border-radius:6px; background:var(--sunken); word-break:break-all; transition:border-color .15s,background .15s}
+.det-art:hover{border-color:var(--line-bright); background:rgba(212,162,127,.10)}
+.det-art span{color:var(--dim); font-size:10px}
+.det-txt{font-size:11.5px; color:var(--soft); line-height:1.6; white-space:pre-wrap; word-break:break-word}
+.det-txt.err{color:var(--fail)}
+.det-empty{color:var(--dim); font-size:12px; padding:30px 6px; text-align:center}
+/* ---------- dag side tabs + 全局看板 ---------- */
+.side-tabs{display:flex; gap:6px; margin-bottom:14px; border-bottom:1px solid var(--line); padding-bottom:12px}
+.side-tab{flex:1; font-family:var(--sans); font-size:11px; letter-spacing:.08em; text-transform:uppercase;
+  color:var(--dim); background:var(--sunken); border:1px solid var(--line); border-radius:7px;
+  padding:7px 6px; cursor:pointer; transition:color .15s,border-color .15s,background .15s}
+.side-tab:hover{color:var(--soft); border-color:var(--line-bright)}
+.side-tab.on{color:var(--on-fg); border-color:var(--ink); background:var(--on-bg)}
+.gv-counts{display:flex; flex-wrap:wrap; gap:6px; margin-bottom:4px}
+.gv-c{display:flex; align-items:center; gap:6px; font-size:11px; color:var(--soft);
+  border:1px solid var(--line); border-radius:6px; padding:4px 8px; background:var(--sunken)}
+.gv-c b{font-family:var(--sans); font-weight:700; color:var(--ink); font-variant-numeric:tabular-nums}
+.gv-c i{width:8px; height:8px; border-radius:2px; display:inline-block}
+.rej-esc{margin:4px 0 12px; padding:9px 11px; border:1px solid rgba(221,114,48,.45);
+  border-radius:7px; background:rgba(221,114,48,.10); color:var(--reject); font-size:11.5px; line-height:1.55}
+/* 「需要人决策」问题横幅：worker 停下问人、等答复（非打回升级），琥珀色，详情页顶部醒目提示 */
+.ask-human{margin:4px 0 12px; padding:9px 11px; border:1px solid rgba(202,138,4,.45);
+  border-radius:7px; background:rgba(202,138,4,.10); color:var(--await); font-size:11.5px; line-height:1.55}
+.rej-item{margin-bottom:10px; padding:9px 11px; border:1px solid var(--line); border-left:3px solid var(--reject);
+  border-radius:7px; background:var(--sunken)}
+.rej-item .rh{font-size:11px; color:var(--reject); font-weight:600; margin-bottom:4px}
+.rej-item .rh .ar{color:var(--dim); margin:0 5px}
+.rej-item .rr{font-size:11.5px; color:var(--soft); line-height:1.55; white-space:pre-wrap; word-break:break-word}
+.rej-item .rt{font-size:10px; color:var(--dim); margin-top:4px}
+/* 执行计时：节点详情的每次尝试明细 + 全局看板的 Agent 耗时聚合 */
+.tm-tbl{width:100%; border-collapse:collapse; font-size:11px; font-variant-numeric:tabular-nums}
+.tm-tbl th{color:var(--dim); font-weight:400; font-size:10px; letter-spacing:.04em; text-align:right; padding:4px 5px; border-bottom:1px solid var(--line)}
+.tm-tbl td{color:var(--soft); text-align:right; padding:5px; border-bottom:1px solid var(--line); white-space:nowrap}
+.tm-tbl th:first-child,.tm-tbl td:first-child{text-align:left}
+.tm-tbl td.ok{color:var(--done)} .tm-tbl td.bad{color:var(--fail)} .tm-tbl td.run{color:var(--run)}
+.tm-sum{font-size:11px; color:var(--soft); margin-bottom:8px} .tm-sum b{color:var(--ink); font-family:var(--sans)}
+.gv-grp{margin-bottom:12px} .gv-grp>.gh{font-size:11px; color:var(--beam); font-family:var(--sans);
+  letter-spacing:.06em; margin-bottom:6px} .gv-grp>.gh b{color:var(--dim); font-weight:400; margin-left:6px; font-size:10px}
+h4.gv-fold{cursor:pointer; user-select:none; display:flex; align-items:center; gap:7px}
+h4.gv-fold:hover{color:var(--beam)} h4.gv-fold .fc{font-size:10px; color:var(--dim); width:10px}
+h4.gv-fold b{margin-left:auto; color:var(--dim); font-weight:400; font-size:10px}
+@media(max-width:900px){ .dag-body{grid-template-columns:1fr} .dag-side{border-left:0; border-top:1px solid var(--line)} }
+
+/* ---------- plan templates (流程模板 / 蓝图) ---------- */
+.tpl{padding:13px 15px; border-bottom:1px solid var(--line); cursor:pointer; transition:background .15s}
+.tpl:last-child{border-bottom:0}
+.tpl:hover{background:rgba(212,162,127,.08)}
+.tpl .trow{display:flex; align-items:baseline; justify-content:space-between; gap:10px}
+.tpl .tname{font-family:var(--sans); font-weight:600; font-size:13.5px; color:var(--ink); letter-spacing:0}
+.tpl .tname b{color:var(--gold); margin-right:7px; font-weight:700}
+.tpl .tmeta{font-size:10px; color:var(--dim); letter-spacing:.04em; white-space:nowrap}
+.tpl .tgoal{margin:7px 0 10px; font-size:11.5px; color:var(--soft); line-height:1.5;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden}
+.tpl .slot{color:var(--gold); background:rgba(181,137,63,.12); border:1px solid rgba(181,137,63,.34);
+  border-radius:5px; padding:0 5px; font-size:10.5px; letter-spacing:.02em; font-family:var(--mono)}
+.tpl .slot::before{content:"{"} .tpl .slot::after{content:"}"}
+.tpl .tslots{display:flex; flex-wrap:wrap; gap:5px; margin-top:9px}
+.tpl .stag{font-size:10px; color:var(--gold); padding:2px 8px; border:1px dashed rgba(181,137,63,.42);
+  border-radius:5px; letter-spacing:.02em; background:rgba(181,137,63,.07)}
+.tpl .tempty{font-size:10px; color:var(--faint); letter-spacing:.04em}
+.tpl .open-dag{font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:var(--dim);
+  border:1px solid var(--line); border-radius:6px; padding:2px 8px; white-space:nowrap}
+.tpl:hover .open-dag{color:var(--gold); border-color:rgba(181,137,63,.5)}
+.chip[data-s=template]{border-style:dashed; border-color:rgba(181,137,63,.4); background:rgba(181,137,63,.06)}
+.chip[data-s=template] .st{background:var(--gold)}
+.chip[data-s=template] .who{color:var(--gold)}
+/* fan-out 步骤：模板 chip 的青绿描边 + ⑃×N 徽标；卡头的「⑃ 动态并行」标签 */
+.chip.fan{border-color:rgba(44,154,143,.5)} .chip.fan .st{background:var(--fan)}
+.chip .fanb{font-family:var(--mono); font-size:9.5px; font-weight:700; color:var(--fan);
+  padding:1px 5px; border:1px solid rgba(44,154,143,.42); border-radius:5px; background:rgba(44,154,143,.10)}
+.tpl .tfan{font-size:9.5px; color:var(--fan); letter-spacing:.04em; white-space:nowrap;
+  padding:1px 6px; border:1px solid rgba(44,154,143,.42); border-radius:5px; background:rgba(44,154,143,.09)}
+/* 蓝图节点：无运行态，虚线描边，金色标题以区别于活账本 */
+.dnode.s-template rect{stroke:rgba(181,137,63,.45); stroke-dasharray:4 3}
+.dnode.s-template:hover rect{stroke:var(--gold)}
+.dnode.s-template.sel rect{stroke:var(--gold); filter:drop-shadow(0 2px 6px rgba(181,137,63,.35))}
+.dnode.s-template .dn-st{fill:var(--gold)}
+.det-slots{display:flex; flex-wrap:wrap; gap:6px; margin:2px 0 4px}
+.det-slots .stag{font-size:10.5px; color:var(--gold); padding:2px 8px; border:1px dashed rgba(181,137,63,.45);
+  border-radius:5px; background:rgba(181,137,63,.08)}
+
+/* ---------- collapsible panels (右栏低价值面板可折叠：模板/日志默认收起) ---------- */
+.coll{font-family:var(--mono); font-size:11px; line-height:1; color:var(--dim);
+  background:var(--sunken); border:1px solid var(--line); border-radius:6px;
+  width:22px; height:20px; cursor:pointer; transition:color .15s,border-color .15s,transform .15s}
+.coll:hover{color:var(--beam); border-color:var(--line-bright)}
+.panel.collapsed .pbody-c{display:none}
+.phead .hgrp{display:flex; align-items:center; gap:9px}
+
+/* ---------- compact inflight worker（可点开→实时对话） ---------- */
+.fly{cursor:pointer}
+.fly:hover{background:rgba(212,162,127,.08)}
+.fly .fdot{width:8px; height:8px; border-radius:50%; flex:0 0 auto; background:var(--run);
+  box-shadow:0 0 0 3px rgba(37,99,235,.16); animation:beat 1.5s infinite}
+.fly .fmain{min-width:0}
+.fly .peek{margin-left:auto; font-size:9.5px; letter-spacing:.08em; text-transform:uppercase;
+  color:var(--faint); opacity:0; transition:opacity .15s}
+.fly:hover .peek{opacity:1; color:var(--beam)}
+
+/* ---------- live terminal readout（任务详情内嵌 worker 近段对话） ---------- */
+.det-sec.live>h4{color:var(--run); display:flex; align-items:center; gap:0}
+.live-dot{display:inline-block; width:7px; height:7px; border-radius:50%; margin-left:8px;
+  background:var(--run); box-shadow:0 0 0 3px rgba(37,99,235,.16); animation:beat 1.4s infinite; vertical-align:middle}
+.live-src{margin-left:auto; font-family:var(--mono); font-size:9.5px; letter-spacing:.03em;
+  color:var(--faint); text-transform:none; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:150px}
+.term{margin-top:3px; max-height:238px; overflow:auto; padding:11px 13px;
+  background:var(--sunken); border:1px solid var(--line); border-radius:8px;
+  font-family:var(--mono); font-size:11px; line-height:1.58; color:var(--soft);
+  white-space:pre-wrap; word-break:break-word}
+.term::selection{background:rgba(212,162,127,.28)}
+
+/* ---------- 底部大面板：执行中 Worker（每卡一段常显实时纪录） ---------- */
+.wpanel{margin-top:18px}
+.pbody-w{padding:6px 4px 10px}
+/* 按 Job 分组：每组一个标题条 + 一片卡片网格 */
+.wgroup{padding:9px 11px 4px}
+.wgroup + .wgroup{border-top:1px dashed var(--line)}
+.wglabel{display:flex; align-items:center; gap:9px; padding:4px 4px 10px; font-family:var(--sans);
+  font-size:13px; letter-spacing:0; color:var(--soft)}
+.wglabel .wgtick{color:var(--line-bright)}
+.wglabel b{color:var(--ink); font-weight:700}
+.wglabel .wgn{font-family:var(--mono); font-size:10px; letter-spacing:.06em; text-transform:uppercase;
+  color:var(--run); border:1px solid rgba(37,99,235,.34); background:rgba(37,99,235,.07);
+  border-radius:5px; padding:1px 7px}
+.wgrid{display:grid; grid-template-columns:repeat(auto-fill,minmax(400px,1fr)); gap:14px}
+.wcard{position:relative; border:1px solid var(--line); border-radius:9px; cursor:pointer;
+  background:var(--panel); overflow:hidden; transition:border-color .15s,box-shadow .15s;
+  box-shadow:0 1px 2px rgba(14,14,14,.04), 0 8px 24px -16px rgba(14,14,14,.16)}
+.wcard:hover{border-color:var(--line-bright); box-shadow:0 1px 2px rgba(14,14,14,.05), 0 12px 30px -16px rgba(14,14,14,.22)}
+.wcard::before{content:""; position:absolute; left:0; top:0; bottom:0; width:3px;
+  background:var(--run)}
+.wcard.idle::before{background:var(--gold)}
+.whead{display:flex; align-items:center; gap:9px; padding:11px 12px 7px 15px}
+.wdot{width:9px; height:9px; border-radius:50%; flex:0 0 auto; background:var(--run);
+  box-shadow:0 0 0 3px rgba(37,99,235,.16); animation:beat 1.5s infinite}
+.wcard.idle .wdot{background:var(--gold); box-shadow:0 0 0 3px rgba(181,137,63,.18)}
+.wtitle{font-family:var(--sans); font-weight:600; font-size:13.5px; color:var(--ink);
+  min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.wtitle b{color:var(--line-bright); margin-right:3px; font-weight:700}
+.wel{margin-left:auto; font-family:var(--mono); font-weight:600; font-size:14px; color:var(--run);
+  font-variant-numeric:tabular-nums; flex:0 0 auto}
+.wmax{flex:0 0 auto; font-family:var(--mono); font-size:12px; line-height:1; color:var(--faint);
+  background:var(--sunken); border:1px solid var(--line); border-radius:6px; width:22px; height:20px;
+  cursor:pointer; transition:color .15s,border-color .15s}
+.wmax:hover{color:var(--beam); border-color:var(--line-bright)}
+.wsub{display:flex; align-items:center; gap:8px; padding:0 12px 10px 15px; font-size:10.5px; color:var(--dim); min-height:12px}
+.wbadge{font-size:9.5px; letter-spacing:.06em; text-transform:uppercase; padding:1px 7px; border-radius:5px; flex:0 0 auto}
+.wbadge.idle{color:var(--gold); border:1px solid rgba(181,137,63,.42); background:rgba(181,137,63,.07)}
+.wdet{margin-left:auto; flex:0 0 auto; font-size:9.5px; letter-spacing:.08em; text-transform:uppercase;
+  color:var(--faint); background:var(--sunken); border:1px solid var(--line); border-radius:6px;
+  padding:2px 8px; cursor:pointer; transition:color .15s,border-color .15s}
+.wdet:hover{color:var(--beam); border-color:var(--line-bright)}
+.wterm{max-height:190px; overflow:auto; margin:0 12px 12px; padding:10px 13px; cursor:auto;
+  background:var(--sunken); border:1px solid var(--line); border-radius:8px;
+  font-family:var(--mono); font-size:11px; line-height:1.58; color:var(--soft);
+  white-space:pre-wrap; word-break:break-word}
+.wterm::selection{background:rgba(212,162,127,.28)}
+.wterm.loading{color:var(--faint); font-style:italic}
+
+/* ---------- 卡片最大化覆盖层 ---------- */
+.max-ov{position:fixed; inset:0; z-index:140; display:flex; flex-direction:column;
+  background:var(--bg); animation:rise .24s both}
+.max-ov::before{content:none}
+.max-top{position:relative; z-index:1; display:flex; align-items:center; gap:16px;
+  padding:16px 26px; border-bottom:1px solid var(--line)}
+.max-ttl{min-width:0} .max-ttl h2{margin:0; font-family:var(--serif); font-weight:600; font-size:19px;
+  letter-spacing:0; color:var(--ink)} .max-ttl h2 b{color:var(--line-bright); margin-right:8px}
+.max-ttl p{margin:3px 0 0; font-size:11.5px; color:var(--dim); max-width:90ch; overflow:hidden;
+  text-overflow:ellipsis; white-space:nowrap}
+.max-body{position:relative; z-index:1; flex:1; min-height:0; padding:20px 26px 26px; display:flex}
+.max-term{flex:1; max-height:none; height:100%; margin:0; font-size:12.5px; line-height:1.62; padding:18px 20px}
+
+/* ---------- agent 配置弹框（名册卡片 / 节点详情 Agent 行点开） ---------- */
+.agent.clk{cursor:pointer; transition:background .15s}
+.agent.clk:hover{background:var(--sunken)}
+.agent .sk{font-size:10px; color:var(--beam); margin-left:auto}
+.det-agt{display:flex; flex-wrap:wrap; gap:6px; margin:-4px 0 12px}
+.agt-btn{font-family:var(--sans); font-size:11.5px; color:var(--ink); background:var(--sunken);
+  border:1px solid var(--line); border-radius:7px; padding:6px 11px; cursor:pointer; display:inline-flex; align-items:center; gap:6px;
+  transition:color .15s,border-color .15s,background .15s}
+.agt-btn:hover{border-color:var(--line-bright); background:var(--panel)}
+.agt-btn b{font-weight:600}
+.agt-btn span{color:var(--dim); font-size:10.5px}
+.det-agt .hint{font-size:10.5px; color:var(--dim); flex-basis:100%}
+.alink{color:var(--beam); cursor:pointer; text-decoration:underline; text-decoration-style:dotted; text-underline-offset:3px}
+.alink:hover{color:var(--ink)}
+.am-ov{position:fixed; inset:0; z-index:160; display:flex; align-items:center; justify-content:center;
+  background:rgba(14,14,14,.32); animation:rise .2s both; padding:24px}
+.am{width:min(760px,100%); max-height:min(86vh,900px); display:flex; flex-direction:column;
+  background:var(--panel); border:1px solid var(--line); border-radius:12px; box-shadow:0 24px 60px -20px rgba(14,14,14,.45)}
+.am-h{display:flex; align-items:flex-start; gap:14px; padding:18px 22px 14px; border-bottom:1px solid var(--line)}
+.am-h h3{margin:0; font-family:var(--serif); font-weight:600; font-size:21px; color:var(--ink); word-break:break-all}
+.am-h p{margin:4px 0 0; font-size:12px; color:var(--dim); line-height:1.5}
+.am-x{margin-left:auto; flex:none; width:30px; height:30px; border-radius:7px; border:1px solid var(--line);
+  background:var(--sunken); color:var(--soft); font-size:15px; cursor:pointer}
+.am-x:hover{color:var(--ink); border-color:var(--line-bright)}
+.am-b{overflow:auto; padding:6px 22px 22px}
+.am-sec{margin-top:16px}
+.am-sec h4{margin:0 0 8px; font-size:10.5px; letter-spacing:.14em; text-transform:uppercase; color:var(--beam); font-weight:600}
+.am-kv{display:grid; grid-template-columns:110px 1fr; gap:6px 14px; font-size:12.5px}
+.am-kv .k{color:var(--dim)} .am-kv .v{color:var(--ink); word-break:break-all}
+.am-kv .v code{font-family:var(--mono); font-size:11.5px; color:var(--soft)}
+.sk-card{border:1px solid var(--line); border-radius:9px; margin-bottom:8px; background:var(--panel)}
+.sk-card>summary{list-style:none; cursor:pointer; padding:11px 14px; display:flex; flex-direction:column; gap:4px}
+.sk-card>summary::-webkit-details-marker{display:none}
+.sk-card[open]>summary{border-bottom:1px solid var(--line)}
+.sk-name{font-weight:600; font-size:13px; color:var(--ink); display:flex; align-items:center; gap:8px}
+.sk-name::before{content:"▸"; color:var(--faint); font-size:10px; transition:transform .15s}
+.sk-card[open] .sk-name::before{transform:rotate(90deg)}
+.sk-name small{font-family:var(--mono); font-weight:400; font-size:10.5px; color:var(--faint)}
+.sk-desc{font-size:12px; color:var(--soft); line-height:1.55; white-space:pre-wrap}
+.sk-body{margin:0; padding:12px 14px; max-height:340px; overflow:auto; font-family:var(--mono); font-size:11px;
+  line-height:1.6; color:var(--soft); white-space:pre-wrap; word-break:break-word; background:var(--sunken); border-radius:0 0 9px 9px}
+.sk-path{font-family:var(--mono); font-size:10.5px; color:var(--faint); padding:8px 14px 0}
+.sk-warn{font-size:12px; color:var(--reject); border:1px solid rgba(221,114,48,.4); background:rgba(221,114,48,.07);
+  border-radius:8px; padding:9px 12px; margin-bottom:8px}
+.sk-hid{display:flex; flex-wrap:wrap; gap:6px}
+.sk-hid span{font-family:var(--mono); font-size:11px; padding:3px 9px; border-radius:6px; border:1px dashed var(--line); color:var(--dim)}
+.sk-hid span.own{border-color:rgba(221,114,48,.45); color:var(--reject)}
+.am-note{font-size:11.5px; color:var(--dim); line-height:1.55}
+</style>
+</head>
+<body>
+<div class="wrap" id="app"><!-- APP --></div>
+<script>
+const $ = document.getElementById('app');
+let first = true, lastOk = 0, lastState = null, jobFilter = 'active';
+let jobSearch = '', jobSort = 'recent', jobPage = 1;   // 左栏 Job 列表：搜索词 / 排序 / 已翻页数（每页 3）
+const JOB_PAGE = 3;
+let dagKind = null, dagKey = null, dagSel = null;   // 打开的 DAG：kind='job'|'tpl'，key=goal_id/模板名，dagSel=选中节点
+let dagDetail = null, dagDetailKey = null;   // 按需 /api/job 拉来的当前 DAG 完整明细 + 其归属 key（dagKind:dagKey）
+let dagView = 'global';   // 右侧栏视图：'global'=全局看板（默认，打开流程图即见）| 'node'=选中节点详情
+let gvArtOpen = true;     // 全局看板「全局产出」是否展开（跨 2.5s 刷新记住，见 globalPanel/toggleGvArt）
+const collapsed = new Set(['agt','tpl','log']);     // 右栏低价值面板默认收起：Agent 名册 / 流程模板 / 事件日志
+let tailName = null, tailTimer = null, tailAbort = null, tailText = '';  // 单节点实时对话尾读
+let inflightTails = {};        // 底部执行中面板：herdr_name -> 近段输出（每 3s 批量拉一次）
+const termScroll = {};         // herdr_name -> {top, follow}：跨刷新保住每张卡片的滚动位置，只有贴底时才跟随
+let tailsTimer = null;
+/* 主题：亮(默认 Claude 暖米白) / 暗(Claude 近黑+陶土)。存 localStorage，body.dark 类切换；
+   body 类在 $.innerHTML(#app) 重渲染间保留，故只需初始化一次、按钮标签每次渲染读当前类。 */
+function applyTheme(t){ document.body.classList.toggle('dark', t==='dark'); try{ localStorage.setItem('teams-theme', t); }catch(e){} }
+function toggleTheme(){ applyTheme(document.body.classList.contains('dark') ? 'light' : 'dark'); if(lastState) render(lastState, false); }
+try{ if(localStorage.getItem('teams-theme')==='dark') document.body.classList.add('dark'); }catch(e){}
+
+function setJobFilter(f){ jobFilter = f; jobPage = 1; if(lastState) render(lastState, false); }
+function setJobSearch(v){ jobSearch = v; jobPage = 1; if(lastState) render(lastState, false); }
+function setJobSort(v){ jobSort = v; jobPage = 1; if(lastState) render(lastState, false); }
+function jobMore(){ jobPage++; if(lastState) render(lastState, false); }
+const PAGE_SIZE = {agt:6, tpl:3};      // 右栏面板每页条数：Agent 名册 / 流程模板（卡片较高，页更小）
+const panelPage = {agt:1, tpl:1};
+function setPanelPage(k,p){ panelPage[k] = p; if(lastState) render(lastState, false); }
+/* 分页切片：越界页码（如 agent/模板被删后）自动夹回有效范围；仅一页时不出翻页条 */
+function paginate(k, items){
+  const size = PAGE_SIZE[k], pages = Math.max(1, Math.ceil(items.length/size));
+  const p = Math.min(Math.max(1, panelPage[k]), pages);
+  panelPage[k] = p;
+  const pager = pages > 1
+    ? `<div class="pager"><button ${p<=1?'disabled':''} onclick="setPanelPage('${k}',${p-1})">‹ 上一页</button>
+        <span>${p} / ${pages} · 共 ${items.length}</span>
+        <button ${p>=pages?'disabled':''} onclick="setPanelPage('${k}',${p+1})">下一页 ›</button></div>` : '';
+  return {rows: items.slice((p-1)*size, p*size), pager};
+}
+function toggleColl(k){ collapsed.has(k) ? collapsed.delete(k) : collapsed.add(k); if(lastState) render(lastState, false); }
+
+const esc = s => String(s??'').replace(/[&<>"'\\]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','\\':'&#92;'}[c]));
+const pad = n => String(n).padStart(2,'0');
+function clockStr(d){ return pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds()); }
+function evtime(ts){ const d=new Date(ts*1000); return pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds()); }
+function dur(s){ if(s==null) return '—'; s=Math.round(s);
+  if(s<60) return s+'s'; const m=Math.floor(s/60); if(m<60) return m+'m'+pad(s%60)+'s';
+  const h=Math.floor(m/60); return h+'h'+pad(m%60)+'m'; }
+
+/* live clock (independent of polling) */
+setInterval(()=>{ const c=document.getElementById('clock'); if(c) c.textContent=clockStr(new Date()); },1000);
+
+async function poll(){
+  try{
+    const r = await fetch('/api/state',{cache:'no-store'});
+    const s = await r.json();
+    if(s.error) throw new Error(s.error);
+    lastOk = Date.now();
+    render(s, first); first = false;
+  }catch(e){
+    const d=document.getElementById('beatdot'); if(d) d.className='dot dead';
+    const t=document.getElementById('beattxt'); if(t) t.textContent='链路中断 · 重连中';
+    if(first){ $.innerHTML = '<div class="panel reveal"><div class="empty">无法连接到调度状态源<br>'+esc(e.message)+'</div></div>'; }
+  }
+}
+setInterval(poll, 2500); poll();
+
+function render(s, anim){
+  lastState = s;
+  // 全量重渲染会替换搜索框 DOM；先记住它是否聚焦+光标位，渲染后恢复，别打断打字
+  const hadSearchFocus = document.activeElement && document.activeElement.id==='jobSearch';
+  const searchCaret = hadSearchFocus ? document.activeElement.selectionStart : null;
+  const st = s.stats, rc = anim ? 'reveal' : '';
+  const stale = (Date.now()-lastOk) > 6000;
+  const beat = stale ? 'dot stale' : 'dot';
+  const beatTxt = stale ? '同步延迟' : '实时同步 · 2.5s';
+  const head = `
+  <div class="top ${rc}">
+    <div class="brand">
+      <div class="mark"><i></i><b>T</b></div>
+      <div class="title"><h1>TEAMS<span>·</span>CONTROL</h1>
+        <p>Agent Team Orchestration Console</p></div>
+    </div>
+    <div class="status-strip">
+      <div class="beat"><span id="beatdot" class="${beat}"></span>
+        <span id="beattxt">${beatTxt}</span></div>
+      <div class="clock" id="clock">${clockStr(new Date())}</div>
+      <button class="theme-btn" id="themeBtn" onclick="toggleTheme()" title="切换亮/暗主题">${document.body.classList.contains('dark')?'☾ 暗色':'☀ 亮色'}</button>
+    </div>
+  </div>`;
+
+  const K = (n,l,cls,d)=>`<div class="panel kpi ${cls} ${rc}" style="animation-delay:${d}ms">
+    <div class="n">${n}</div><div class="l">${l}</div><div class="bar"></div></div>`;
+  const kpis = `<div class="kpis">
+    ${K(st.jobs_active,'活跃 Job','k-job',40)}
+    ${K(st.running,'执行中','k-run',90)}
+    ${K(st.awaiting_input||0,'待人决策','k-await'+((st.awaiting_input||0)?' hot':''),115)}
+    ${K(st.done,'已完成','k-done',140)}
+    ${K(st.failed+st.skipped,'失败/跳过','k-fail',190)}
+    ${K(st.rejects||0,'打回'+((st.escalations||0)?` <em>⚠${st.escalations}</em>`:''),'k-reject',240)}
+    ${K(st.agents,'在册 Agent','k-agt',290)}
+    ${K(st.inflight,'在途 Pane','k-fly',340)}
+  </div>`;
+
+  const grid = `<div class="grid">
+    <div class="col">${jobsPanel(s.jobs, rc)}</div>
+    <div class="col">${agentsPanel(s.agents, rc)}${templatesPanel(s.templates, rc)}${logPanel(s.events, rc)}</div>
+  </div>`;
+
+  $.innerHTML = head + kpis + grid + workersPanel(s.inflight, rc);
+  restoreWorkerTerms();                                   // 刷新后按记忆恢复各卡片滚动位置（避免每次跳到底）
+  if(hadSearchFocus){ const sb=document.getElementById('jobSearch');   // 恢复搜索框聚焦+光标
+    if(sb){ sb.focus(); if(searchCaret!=null) try{ sb.setSelectionRange(searchCaret,searchCaret); }catch(e){} } }
+  // 底部执行中面板可见（无 DAG 覆盖层且有在途 worker）才拉实时纪录，避免覆盖层遮挡时白读 pane
+  if(!dagKind && (s.inflight||[]).length) startTailsPoll(); else stopTailsPoll();
+  if(dagKind) syncDag();   // DAG 覆盖层打开时随轮询实时刷新
+}
+// 运行记录 outcome → [中文, td class]
+const _OUT={done:['完成','ok'],failed:['失败','bad'],timeout:['超时','bad'],fatal:['致命','bad'],
+  reject:['打回上游',''],reject_invalid:['打回无效',''],bypassed:['被绕过',''],retasked:['改写重派',''],
+  reset:['连锁重置',''],superseded:['被覆盖','']};
+// 任务耗时文本：在跑显示已运行时长，跑完显示最近一次净执行；重试/打回过的加 ×N
+function taskDur(t){
+  if(t.status==='dispatched' && t.elapsed_s!=null) return dur(t.elapsed_s);
+  const a = t.timing ? t.timing.active_s : t.active_s;
+  if(a==null) return '';
+  const n = Array.isArray(t.runs) ? t.runs.length : (t.runs||0);
+  return dur(a)+(n>1?' ×'+n:'');
+}
+function chip(t){
+  const td = taskDur(t);
+  const el = td ? `<span class="el">${td}</span>` : '';
+  const who = t.agent ? `<span class="who">${esc(t.agent)}</span>` : '';
+  const rej = (t.reject_count||0) ? `<span class="rej" title="被打回 ${t.reject_count} 次">↩${t.reject_count}</span>` : '';
+  const tip = t.error ? esc(t.error) : (t.summary ? esc(t.summary) : (t.capabilities||[]).join(', '));
+  return `<div class="chip" data-s="${t.status}" title="${tip}">
+    <span class="st"></span><span class="tid">${esc(t.task_id)}</span>${who}${rej}${el}</div>`;
+}
+function jobRejects(j){ return (j.tasks||[]).reduce((a,t)=>a+(t.reject_count||0),0); }
+function jobEscalated(j){ return (j.tasks||[]).some(t=>t.escalated); }
+// 停下等人答复（非打回升级）的任务——「需要人决策」Job 卡徽标据此点亮
+function jobAwaiting(j){ return (j.tasks||[]).filter(t=>t.status==='awaiting_input' && !t.escalated); }
+function jobCard(j){
+  let badge = `<span class="badge live">运行中 · ${esc(j.summary)}</span>`;
+  if(j.complete) badge = j.ok ? `<span class="badge ok">已完成</span>`
+    : `<span class="badge fail">收敛(含失败)</span>`;
+  const nrej = jobRejects(j);
+  const rejBadge = jobEscalated(j) ? `<span class="badge esc" title="打回超限，待协调者裁决">⚠ 待裁决</span>`
+    : (nrej ? `<span class="badge reject" title="本流程累计打回 ${nrej} 次">↩ ${nrej}</span>` : '');
+  // 需要人决策：worker 停下来问人、等答复。徽标 tooltip 带上它正在问的问题
+  const aw = jobAwaiting(j);
+  const awReason = aw.map(t=>t.awaiting_reason).filter(Boolean)[0] || '';
+  const humanBadge = aw.length
+    ? `<span class="badge human" title="${esc(awReason||'worker 停下等待人工决策')}">🙋 待人决策${aw.length>1?' ×'+aw.length:''}</span>`
+    : '';
+  const pipe = j.tasks.map(chip).join('');
+  return `<div class="job ${j.complete?'done':''}" onclick="openDag('${esc(j.goal_id)}')" title="点开查看 DAG 依赖图与产物">
+    <div class="jrow"><div class="gid"><b>▹</b>${esc(j.goal_id)}</div>
+      <div style="display:flex;align-items:center;gap:10px">${humanBadge}${rejBadge}${badge}<span class="open-dag">DAG ▧</span></div></div>
+    <div class="goal">${esc(j.goal||'—')}</div>
+    <div class="pipe">${pipe}</div></div>`;
+}
+function jobsPanel(jobs, rc){
+  const active = jobs.filter(j=>!j.complete);
+  const done = jobs.filter(j=>j.complete);
+  const map = {active, done, all: jobs};
+  let shown = map[jobFilter] || jobs;
+  // 搜索：goal_id + goal 文本模糊（不区分大小写）
+  const q = jobSearch.trim().toLowerCase();
+  if(q) shown = shown.filter(j=>(j.goal_id+' '+(j.goal||'')).toLowerCase().includes(q));
+  // 排序：最新(mtime↓) / 状态(活跃→含失败→完成，组内 mtime↓) / 名称(goal_id↑)
+  const rank = j => !j.complete ? 0 : (j.has_failures ? 1 : 2);
+  const sorters = {
+    recent: (a,b)=>(b.mtime||0)-(a.mtime||0),
+    status: (a,b)=>rank(a)-rank(b) || (b.mtime||0)-(a.mtime||0),
+    name:   (a,b)=>String(a.goal_id).localeCompare(String(b.goal_id)),
+  };
+  shown = shown.slice().sort(sorters[jobSort]||sorters.recent);
+  const total = shown.length;
+  const cap = JOB_PAGE * Math.max(1, jobPage);
+  const page = shown.slice(0, cap);
+
+  const tab = (k,l,n)=>`<button class="fbtn${jobFilter===k?' on':''}" onclick="setJobFilter('${k}')">${l}<i>${n}</i></button>`;
+  const filt = `<div class="filt">${tab('active','活跃',active.length)}${tab('done','已完成',done.length)}${tab('all','全部',jobs.length)}</div>`;
+  const sbtn = (k,l)=>`<button class="fbtn${jobSort===k?' on':''}" onclick="setJobSort('${k}')">${l}</button>`;
+  const toolbar = `<div class="jtoolbar">
+    <input id="jobSearch" class="jsearch" type="text" placeholder="搜索 Job（名称 / 目标）…"
+      value="${esc(jobSearch)}" oninput="setJobSearch(this.value)" autocomplete="off" spellcheck="false">
+    <div class="filt jsort">${sbtn('recent','最新')}${sbtn('status','状态')}${sbtn('name','名称')}</div>
+  </div>`;
+  const more = total > cap
+    ? `<div class="jmore" onclick="jobMore()">显示更多 · 还有 ${total-cap} 个（共 ${total}）</div>` : '';
+  const body = page.length ? page.map(jobCard).join('') + more
+    : (jobs.length ? `<div class="empty">${q?'没有匹配「'+esc(jobSearch)+'」的 Job':'当前筛选下没有 Job'}<br>切到「全部」或改搜索词</div>`
+       : `<div class="empty">当前没有已载入的 Job<br>用 <code>plan &lt;file&gt;</code> 载入一个任务 DAG</div>`);
+  return `<div class="panel ${rc}" style="animation-delay:340ms">
+    <div class="phead"><h2>任务流水线 · Jobs</h2>${filt}</div>
+    ${toolbar}
+    <div>${body}</div></div>`;
+}
+function agentCard(a){
+  const cap = a.max_concurrent||1;
+  let bars=''; for(let i=0;i<cap;i++) bars += `<i class="${i<a.load?'on':''}"></i>`;
+  const caps = (a.capabilities||[]).map(c=>`<span class="cap">${esc(c)}</span>`).join('') || '<span class="cap">通用</span>';
+  const nsk=(a.skills||[]).length;
+  return `<div class="agent clk" onclick="openAgent('${esc(a.name)}')" title="查看配置与 skill">
+    <div class="arow">
+      <div><div class="name">${esc(a.name)}</div><div class="role">${esc(a.role||'—')}</div></div>
+      <div class="load">${bars}<span>${a.load}/${cap}</span></div>
+    </div>
+    <div class="caps">${caps}<span class="sk">${nsk?'⚙ '+nsk+' 个 skill':'⚙ 无 skill'} ›</span></div></div>`;
+}
+function agentsPanel(agents, rc){
+  const busy = agents.filter(a=>a.load>0).length;
+  const pg = paginate('agt', agents);
+  const body = agents.length ? pg.rows.map(agentCard).join('') + pg.pager
+    : `<div class="empty">名册为空<br>用 <code>agent create</code> 新建成员</div>`;
+  return `<div class="panel ${collapsed.has('agt')?'collapsed':''} ${rc}" style="animation-delay:120ms">
+    ${collHead('agt','Agent 名册',`<span class="tag">${busy}/${agents.length} 忙</span>`)}
+    <div class="pbody-c">${body}</div></div>`;
+}
+/* ---------- 底部大面板：执行中 Worker（按 Job 分组，每卡常显实时纪录，点开可最大化） ---------- */
+function workerCard(f){
+  const name = f.herdr_name || '';
+  const txt = inflightTails[name];
+  const has = txt != null && txt !== '';
+  const idle = f.idle ? `<span class="wbadge idle">idle 待收</span>` : '';
+  const arg = `'${esc(f.goal_id)}','${esc(f.task_id)}','${esc(f.agent)}','${esc(name)}'`;
+  return `<div class="wcard${f.idle?' idle':''}" onclick="openMax(${arg})" title="点击最大化查看完整实时纪录">
+    <div class="whead">
+      <span class="wdot"></span>
+      <div class="wtitle"><b>${esc(f.agent)}</b> ◂ ${esc(f.task_id)}</div>
+      <span class="wel">${dur(f.elapsed_s)}</span>
+      <button class="wmax" onclick="event.stopPropagation();openMax(${arg})" title="最大化">⛶</button>
+    </div>
+    <div class="wsub">${idle}
+      <button class="wdet" onclick="event.stopPropagation();jumpWorker('${esc(f.goal_id)}','${esc(f.task_id)}')" title="打开该节点的 DAG 详情">详情 ▧</button></div>
+    <div class="wterm${has?'':' loading'}" data-name="${esc(name)}" onclick="event.stopPropagation()">${has?esc(txt):'… 载入实时纪录'}</div>
+  </div>`;
+}
+function workersPanel(fly, rc){
+  fly = fly || [];
+  let body;
+  if(!fly.length){
+    body = `<div class="empty">当前没有执行中的 worker<br>tick 分派后在这里逐卡实时显示，任务结束/回收即消失</div>`;
+  }else{
+    // 按 Job(goal_id) 分组：多个 Job 的 worker 不再混在一起，各成一段、带组标题与计数
+    const groups = [];        // 保序：按各 goal_id 首次出现的顺序
+    const idx = {};
+    fly.forEach(f=>{
+      if(idx[f.goal_id]==null){ idx[f.goal_id]=groups.length; groups.push({gid:f.goal_id, items:[]}); }
+      groups[idx[f.goal_id]].items.push(f);
+    });
+    body = groups.map(g=>`<div class="wgroup">
+      <div class="wglabel"><span class="wgtick">▹</span><b>${esc(g.gid)}</b><span class="wgn">${g.items.length} 运行中</span></div>
+      <div class="wgrid">${g.items.map(workerCard).join('')}</div>
+    </div>`).join('');
+  }
+  return `<div class="panel wpanel ${rc}" style="animation-delay:360ms">
+    <div class="phead"><h2>执行中 Worker · Live</h2><span class="tag">${fly.length} 运行中</span></div>
+    <div class="pbody-w">${body}</div></div>`;
+}
+function jumpWorker(gid,tid){ openWorker(gid,tid); }
+/* 刷新后恢复各卡片滚动：有记忆且用户上翻过 → 保持位置；否则（默认/贴底跟随）滚到底 */
+function restoreWorkerTerms(){
+  document.querySelectorAll('.wterm').forEach(el=>{
+    const st = termScroll[el.dataset.name];
+    el.scrollTop = (st && !st.follow) ? st.top : el.scrollHeight;
+  });
+}
+/* 3s 批量拉一次全部在途 worker 的近段输出，只更新已有卡片的终端文本+滚动，不整页重渲染 */
+function paintWorkerTerms(){
+  document.querySelectorAll('.wterm').forEach(el=>{
+    const txt = inflightTails[el.dataset.name];
+    if(txt == null) return;
+    if(el.textContent !== (txt||'')){ el.textContent = txt || '（暂无输出）'; el.classList.remove('loading'); }
+    const st = termScroll[el.dataset.name];
+    el.scrollTop = (st && !st.follow) ? st.top : el.scrollHeight;
+  });
+}
+async function pollTails(){
+  try{
+    const r = await fetch('/api/inflight_tails?lines=18',{cache:'no-store'});
+    const d = await r.json();
+    inflightTails = d.tails || {};
+    paintWorkerTerms();
+  }catch(e){}   // 网络抖动静默，下个周期再来
+}
+function startTailsPoll(){ if(tailsTimer) return; pollTails(); tailsTimer=setInterval(pollTails,3000); }
+function stopTailsPoll(){ if(tailsTimer){ clearInterval(tailsTimer); tailsTimer=null; } }
+
+/* ---------- 卡片最大化：单个 worker 全屏看完整实时纪录（拉更多行、独立轮询） ---------- */
+let maxName=null, maxMeta=null, maxTimer=null, maxAbort=null, maxText='';
+let maxScroll={top:0, follow:true};
+function openMax(gid,tid,agent,name){
+  if(!name) return;
+  maxMeta={gid,tid,agent,name}; maxName=name; maxText='… 载入中'; maxScroll={top:0,follow:true};
+  let o=document.getElementById('maxOv');
+  if(!o){ o=document.createElement('div'); o.id='maxOv'; o.className='max-ov'; document.body.appendChild(o); }
+  o.innerHTML=`
+    <div class="max-top">
+      <button class="dag-back" onclick="closeMax()">◂ 收起</button>
+      <div class="max-ttl"><h2><b>${esc(agent)}</b> ◂ ${esc(tid)}</h2>
+        <p id="maxSub">${esc(gid)}</p></div>
+      <span class="live-dot" style="margin-left:auto"></span>
+      <button class="dag-back" onclick="jumpWorker('${esc(gid)}','${esc(tid)}')">DAG 详情 ▧</button>
+    </div>
+    <div class="max-body"><div class="term max-term" id="maxTerm">… 载入中</div></div>`;
+  const el=document.getElementById('maxTerm');
+  el.addEventListener('scroll',()=>{ const near=el.scrollHeight-el.scrollTop-el.clientHeight<48;
+    maxScroll={top:el.scrollTop, follow:near}; });
+  fetchMax(); if(maxTimer) clearInterval(maxTimer); maxTimer=setInterval(fetchMax,3000);
+}
+function fetchMax(){
+  if(!maxName) return;
+  if(maxAbort) maxAbort.abort(); maxAbort=new AbortController();
+  const n=maxName;
+  fetch('/api/agent_tail?name='+encodeURIComponent(n)+'&lines=120',{signal:maxAbort.signal,cache:'no-store'})
+    .then(r=>r.json()).then(d=>{ if(maxName!==n) return;
+      maxText=(d.text||'').replace(/\s+$/,'')||'（暂无输出）'; paintMax(); }).catch(()=>{});
+}
+function paintMax(){
+  const el=document.getElementById('maxTerm'); if(!el) return;
+  if(el.textContent!==maxText) el.textContent=maxText;
+  el.scrollTop = maxScroll.follow ? el.scrollHeight : maxScroll.top;
+  // 头部耗时/状态随主轮询实时刷新（worker 已结束则标注）
+  const sub=document.getElementById('maxSub'); if(sub&&maxMeta){
+    const f=((lastState&&lastState.inflight)||[]).find(x=>x.herdr_name===maxName);
+    sub.innerHTML = f ? `${esc(maxMeta.gid)} · 已运行 ${dur(f.elapsed_s)}${f.idle?' · idle 待收':''}`
+                      : `${esc(maxMeta.gid)} · <span style="color:var(--gold)">该 worker 已结束/回收</span>`;
+  }
+}
+function closeMax(){
+  if(maxTimer){ clearInterval(maxTimer); maxTimer=null; }
+  if(maxAbort){ maxAbort.abort(); maxAbort=null; }
+  maxName=null; maxMeta=null; const o=document.getElementById('maxOv'); if(o) o.remove();
+}
+document.addEventListener('keydown', e=>{ if(e.key==='Escape' && maxName) closeMax(); });
+// 捕获阶段先处理并截断：Esc 只关弹框，不连带关掉底下的 DAG / 最大化覆盖层
+document.addEventListener('keydown', e=>{ if(e.key==='Escape' && amName){ e.stopImmediatePropagation(); closeAgent(); } }, true);
+/* ---------- agent 配置弹框：按需 /api/agent 拉一次，不进 2.5s 轮询 ---------- */
+let amName=null;
+function openAgent(name){
+  if(!name) return; amName=name;
+  let o=document.getElementById('amOv');
+  if(!o){ o=document.createElement('div'); o.id='amOv'; o.className='am-ov';
+    o.addEventListener('click',e=>{ if(e.target===o) closeAgent(); }); document.body.appendChild(o); }
+  o.innerHTML=`<div class="am" role="dialog" aria-modal="true" aria-label="Agent ${esc(name)} 配置">
+    <div class="am-h"><div><h3>${esc(name)}</h3><p>载入中…</p></div>
+    <button class="am-x" onclick="closeAgent()" aria-label="关闭">✕</button></div></div>`;
+  // 404 = 看板进程早于本接口启动（HTML 每次现读、Python 路由只在启动时加载），提示重启而不是抛 JSON 解析错
+  fetch('/api/agent?name='+encodeURIComponent(name),{cache:'no-store'})
+    .then(r=>r.status===404 ? {name, error:'看板服务版本过旧、没有 /api/agent 接口，请重启 dashboard 进程后再试'}
+                            : r.json())
+    .then(d=>{ if(amName===name) paintAgent(d); })
+    .catch(e=>{ if(amName===name) paintAgent({name, error:String(e)}); });
+}
+function paintAgent(d){
+  const o=document.getElementById('amOv'); if(!o) return;
+  if(d.error){ o.querySelector('.am-h p').textContent='读取失败：'+d.error; return; }
+  const kv=(k,v)=>`<div class="k">${k}</div><div class="v">${v}</div>`;
+  const rt=d.runtime||{};
+  const caps=(d.capabilities||[]).map(c=>`<span class="cap">${esc(c)}</span>`).join(' ')||'通用';
+  const cfg=`<div class="am-kv">
+    ${kv('能力标签', caps)}
+    ${kv('模型', esc(rt.model||'（团队默认）'))}
+    ${kv('CLI', `<code>${esc(rt.cli||'')}${(rt.flags||[]).length?' '+esc(rt.flags.join(' ')):''}</code>`)}
+    ${kv('单 Job 并发', esc(d.max_concurrent))}
+    ${kv('生命周期', esc(d.lifecycle||''))}
+    ${kv('目录', `<code>${esc(d.dir||'')}</code>`)}</div>`;
+  const inst=d.installed||[];
+  const cards=inst.map(s=>`<details class="sk-card">
+      <summary><div class="sk-name">${esc(s.name)}${s.dir!==s.name?` <small>${esc(s.dir)}/</small>`:''}</div>
+        <div class="sk-desc">${s.ok?esc(s.description||'（SKILL.md 无 description）'):`<span style="color:var(--reject)">${esc(s.error||'读取失败')}</span>`}</div></summary>
+      <div class="sk-path">${esc(s.path)}/SKILL.md</div>
+      ${s.body?`<pre class="sk-body">${esc(s.body)}${s.truncated?'\n\n…（已截断，完整内容见 SKILL.md）':''}</pre>`:''}
+    </details>`).join('');
+  const miss=(d.declared_missing||[]).length
+    ? `<div class="sk-warn">⚠ agent.yaml 声明了但未落位：${d.declared_missing.map(esc).join(', ')}（worker 看不到这些 skill）</div>` : '';
+  const instSec=inst.length||miss ? miss+cards
+    : `<div class="am-note">未挂载专属 skill，使用内置工具。<br><code>${esc(d.skills_dir||'')}</code> 下为空。</div>`;
+  const own=new Set(d.hidden_agent||[]);
+  const hid=[...new Set([...(d.hidden_team||[]),...(d.hidden_agent||[])])];
+  const hidSec=hid.length
+    ? `<div class="sk-hid">${hid.map(h=>`<span class="${(d.hidden_team||[]).includes(h)?'':'own'}" title="${(d.hidden_team||[]).includes(h)?'团队默认 worker_hidden_skills':'agent.yaml hidden_skills 追加'}">${esc(h)}</span>`).join('')}</div>
+       <div class="am-note" style="margin-top:8px">分派时写入 worker cwd 的 settings.json 强制关闭。灰框=团队默认，橙框=本 agent 追加。</div>`
+    : '<div class="am-note">无</div>';
+  o.querySelector('.am').innerHTML=`
+    <div class="am-h"><div><h3>${esc(d.name)}</h3><p>${esc(d.role||'—')}</p></div>
+      <button class="am-x" onclick="closeAgent()" aria-label="关闭">✕</button></div>
+    <div class="am-b">
+      <div class="am-sec"><h4>配置</h4>${cfg}</div>
+      <div class="am-sec"><h4>已挂载 Skill · ${inst.length}</h4>${instSec}</div>
+      <div class="am-sec"><h4>对 worker 隐藏的 Skill · ${hid.length}</h4>${hidSec}</div>
+    </div>`;
+}
+function closeAgent(){ amName=null; const o=document.getElementById('amOv'); if(o) o.remove(); }
+/* 捕获阶段监听任意卡片终端的滚动：记住位置与是否贴底（贴底=下轮继续跟随） */
+document.addEventListener('scroll', e=>{
+  const el = e.target;
+  if(!el || !el.classList || !el.classList.contains('wterm')) return;
+  const near = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+  termScroll[el.dataset.name] = {top: el.scrollTop, follow: near};
+}, true);
+/* 折叠式面板头：右侧带 ▾/▸ 开关（收起态只留标题条，省纵向空间） */
+function collHead(key, title, tag){
+  const c = collapsed.has(key);
+  return `<div class="phead"><h2>${title}</h2>
+    <div class="hgrp">${tag||''}
+      <button class="coll" onclick="toggleColl('${key}')" title="${c?'展开':'折叠'}">${c?'▸':'▾'}</button></div></div>`;
+}
+/* ---------- 流程模板 · Plan Templates（可复用蓝图，非运行实例） ---------- */
+function slotHi(goal){ return esc(goal||'—').replace(/\{\{([\w.\-]+)\}\}/g,'<span class="slot">$1</span>'); }
+function tplChip(t){
+  const cap=(t.capabilities||[]).join(',');
+  const who=cap?`<span class="who">${esc(cap)}</span>`:'';
+  // fan-out 步骤：chip 上挂 ⑃×N 徽标 + 青绿描边，让「这一步可动态并行」在模板卡里一眼可见
+  const fo=t.fanout
+    ? `<span class="fanb" title="动态并行：运行期按上游产出展开，同时并发上限 ${t.fanout.max_parallel||'?'}">⑃×${t.fanout.max_parallel||'?'}</span>`
+    : '';
+  return `<div class="chip${t.fanout?' fan':''}" data-s="template" title="${esc(t.goal||t.task_id)}">
+    <span class="st"></span><span class="tid">${esc(t.task_id)}</span>${fo}${who}</div>`;
+}
+function tplCard(t){
+  const pipe=(t.tasks||[]).map(tplChip).join('');
+  const hasFan=(t.tasks||[]).some(x=>x.fanout);
+  const fanTag=hasFan?`<span class="tfan" title="含动态并行(fan-out)步骤：运行期按数据量展开若干并行子任务">⑃ 动态并行</span>`:'';
+  const slots=(t.slots||[]).length
+    ? (t.slots||[]).map(s=>`<span class="stag">${esc(s)}</span>`).join('')
+    : `<span class="tempty">无占位槽 · 可直接 plan 载入</span>`;
+  return `<div class="tpl" onclick="openTpl('${esc(t.name)}')" title="点开查看蓝图 DAG 与各步骤目标">
+    <div class="trow"><div class="tname"><b>▤</b>${esc(t.name)}</div>
+      <div style="display:flex;align-items:center;gap:9px">
+        ${fanTag}<span class="tmeta">${t.ntasks} 步 · ${(t.slots||[]).length} 槽</span>
+        <span class="open-dag">DAG ▧</span></div></div>
+    <div class="tgoal">${slotHi(t.goal)}</div>
+    <div class="pipe">${pipe}</div>
+    <div class="tslots">${slots}</div></div>`;
+}
+function templatesPanel(tpls, rc){
+  tpls = tpls || [];
+  const pg = paginate('tpl', tpls);
+  const body = tpls.length ? pg.rows.map(tplCard).join('') + pg.pager
+    : `<div class="empty">coordinator/plans/ 下暂无模板<br>放一个任务 DAG 的 <code>*.json</code> 即可复用</div>`;
+  return `<div class="panel ${collapsed.has('tpl')?'collapsed':''} ${rc}" style="animation-delay:260ms">
+    ${collHead('tpl','流程模板 · Plan Templates',`<span class="tag">${tpls.length} 蓝图</span>`)}
+    <div class="pbody-c">${body}</div></div>`;
+}
+function evClass(k){
+  if(k==='task_done') return 'done';
+  if(['task_failed','task_timeout','task_fatal','dispatch_error','dispatch_provision_failed','reject_exhausted'].includes(k)) return 'fail';
+  if(k==='dispatched') return 'disp';
+  if(['provision_retry','task_skipped','ledger_orphan_reaped','workspace_reaped','close_pane_failed','task_rejected','reject_invalid'].includes(k)) return 'warn';
+  return '';
+}
+function evDetail(e){
+  const bits=[];
+  if(e.goal_id) bits.push(e.goal_id+(e.task_id?(':'+e.task_id):''));
+  if(e.agent) bits.push('@'+e.agent);
+  if(e.from_task) bits.push('↩'+e.from_task);          // 打回类事件：谁打回的
+  if(e.reject_count!=null) bits.push('#'+e.reject_count);
+  if(e.reason) bits.push(e.reason);
+  else if(e.new_status) bits.push('→ '+e.new_status);
+  else if(e.error) bits.push(e.error);
+  else if(e.root) bits.push('root='+e.root);
+  else if(e.count!=null) bits.push('×'+e.count);
+  if(e.dry_run) bits.push('(dry-run)');
+  return bits.join(' · ');
+}
+function logPanel(events, rc){
+  const rows = (events||[]).slice().reverse().map(e=>`
+    <div class="ev ${evClass(e.event)}"><span class="t">${evtime(e.ts)}</span>
+      <span class="k">${esc(e.event)}</span><span class="d">${esc(evDetail(e))}</span></div>`).join('');
+  const body = rows || `<div class="empty">暂无调度事件</div>`;
+  return `<div class="panel log ${collapsed.has('log')?'collapsed':''} ${rc}" style="animation-delay:420ms">
+    ${collHead('log','调度事件流 · run.log',`<span class="tag">${(events||[]).length} 条</span>`)}
+    <div class="pbody-c stream">${body}</div></div>`;
+}
+/* ---------- DAG overlay：点开 Job → 活账本依赖图；点开模板 → 只读蓝图 ---------- */
+function openDag(gid){ dagKind='job'; dagKey=gid; dagSel=null; dagView='global'; syncDag(); }
+function openTpl(name){ dagKind='tpl'; dagKey=name; dagSel=null; dagView='global'; syncDag(); }
+function openWorker(gid,tid){ dagKind='job'; dagKey=gid; dagSel=tid; dagView='node'; syncDag(); }   // 从在途 worker 直达其节点
+function closeDag(){ stopTail(); dagKind=null; dagKey=null; dagSel=null; dagView='global'; dagDetail=null; dagDetailKey=null; const o=document.getElementById('dagOv'); if(o) o.remove(); }
+document.addEventListener('keydown', e=>{ if(e.key==='Escape' && dagKind) closeDag(); });
+
+/* ---------- 实时对话尾读：只对「当前展开且运行中」的单节点按 3s 拉一次 ----------
+   性能约束：绝不在 /api/state 轮询里批量读所有 worker（那是 N 次 subprocess/轮）。
+   切节点/关面板即停；服务端再叠 1.8s 缓存兜重叠请求。 */
+function paintTerm(){
+  const el=document.getElementById('liveTerm'); if(!el) return;
+  const near = el.scrollHeight-el.scrollTop-el.clientHeight < 52;   // 贴底时才自动跟随
+  el.textContent = tailText || '（暂无输出）';
+  if(near) el.scrollTop = el.scrollHeight;
+}
+function fetchTail(name){
+  if(tailAbort) tailAbort.abort();
+  tailAbort = new AbortController();
+  fetch('/api/agent_tail?name='+encodeURIComponent(name)+'&lines=44',{signal:tailAbort.signal,cache:'no-store'})
+    .then(r=>r.json()).then(d=>{ if(tailName!==name) return;
+      tailText=(d.text||'').replace(/\s+$/,'')||'（暂无输出）'; paintTerm(); })
+    .catch(()=>{});   // abort / 网络抖动静默，下个周期再来
+}
+function startTail(name){
+  if(tailName===name){ paintTerm(); return; }              // 同节点：只补画，不重开轮询
+  stopTail(); tailName=name; tailText='… 载入中'; paintTerm();
+  fetchTail(name); tailTimer=setInterval(()=>fetchTail(name),3000);
+}
+function stopTail(){
+  if(tailTimer){ clearInterval(tailTimer); tailTimer=null; }
+  if(tailAbort){ tailAbort.abort(); tailAbort=null; }
+  tailName=null; tailText='';
+}
+function maybeTail(job){
+  if(dagView!=='node'){ stopTail(); return; }   // 全局看板视图不尾读
+  const t=((job&&job.tasks)||[]).find(x=>x.task_id===dagSel);
+  if(t && !job.isTpl && t.status==='dispatched' && t.herdr_name) startTail(t.herdr_name);
+  else stopTail();
+}
+function clip(s,n){ s=String(s??''); return s.length>n ? s.slice(0,n-1)+'…' : s; }
+/* 当前打开的 DAG 明细，来自按需 /api/job 拉取后的缓存 dagDetail（列表/详情拆分：
+   2.5s 轮询只回摘要，明细点开时才拉）。统一成 {goal_id, goal, tasks[], isTpl, slots}；
+   缓存 key 不匹配当前 dagKind:dagKey 时返回 null（=明细尚未到达/切了目标 → 显示载入壳）。 */
+function curDag(){
+  if(!dagKind) return null;
+  if(dagDetailKey !== dagKind+':'+dagKey) return null;
+  return dagDetail;
+}
+
+/* 按需拉取当前打开的 Job/模板完整明细，填 dagDetail 缓存后重渲染。
+   期间关闭/切换目标则丢弃过期响应；Job 已不存在(error)则关面板。 */
+function fetchDagDetail(){
+  if(!dagKind) return;
+  const key = dagKind+':'+dagKey;
+  const url = dagKind==='tpl' ? '/api/job?template='+encodeURIComponent(dagKey)
+                              : '/api/job?goal_id='+encodeURIComponent(dagKey);
+  fetch(url,{cache:'no-store'}).then(r=>r.json()).then(d=>{
+    if(!dagKind || (dagKind+':'+dagKey)!==key) return;      // 期间切/关了
+    if(d && d.error){ if(dagKind==='job') closeDag(); return; }
+    dagDetail = dagKind==='tpl'
+      ? {goal_id:d.name, goal:d.goal, isTpl:true, slots:d.slots||[],
+         tasks:(d.tasks||[]).map(x=>({...x, status:'template', elapsed_s:null, artifacts:[]}))}
+      : {...d, isTpl:false, tasks:(d.tasks||[])};
+    dagDetailKey = key;
+    renderDag();
+  }).catch(()=>{});   // 网络抖动静默，下个 tick 再来
+}
+function syncDag(){
+  if(!dagKind) return;
+  renderDag();          // 先用现有缓存/载入壳渲染，避免等待时空白
+  fetchDagDetail();     // 再拉最新明细，到达后重渲染（保持随 tick 实时刷新）
+}
+function renderDag(){
+  if(!dagKind) return;
+  let o = document.getElementById('dagOv');
+  if(!o){ o=document.createElement('div'); o.id='dagOv'; o.className='dag-ov'; document.body.appendChild(o); }
+  const job = curDag();
+  if(!job){                                               // 明细未到 → 载入壳（换目标时也立刻切壳）
+    if(o.dataset.key !== dagKind+':'+dagKey){
+      o.dataset.key='';
+      o.innerHTML = `<div class="dag-top"><button class="dag-back" onclick="closeDag()">◂ 返回看板</button>`
+        + `<div class="dag-ttl"><h2><b>▹</b>${esc(dagKey)}</h2><p>载入明细中…</p></div></div>`
+        + `<div class="dag-body"><div class="dag-canvas"><div class="empty">载入中…</div></div><div class="dag-side"></div></div>`;
+    }
+    return;
+  }
+  o.dataset.key = dagKind+':'+dagKey;
+  if(!dagSel || !job.tasks.some(t=>t.task_id===dagSel)){ // 默认选中：运行中→失败→首个
+    const pick = job.tasks.find(t=>t.status==='dispatched') || job.tasks.find(t=>t.status==='failed') || job.tasks[0];
+    dagSel = pick ? pick.task_id : null;
+  }
+  const kindTag = job.isTpl
+    ? `<span class="tag" style="color:var(--gold);border-color:rgba(181,137,63,.5);background:rgba(181,137,63,.09)">流程模板 · 只读蓝图</span>`
+    : '';
+  const oc=o.querySelector('.dag-canvas'), sl=oc?oc.scrollLeft:0, stp=oc?oc.scrollTop:0;
+  const osd=o.querySelector('.dag-side'), sst=osd?osd.scrollTop:0;   // 侧栏滚动位：刷新后恢复，别跳回顶/底
+  o.innerHTML = `
+    <div class="dag-top">
+      <button class="dag-back" onclick="closeDag()">◂ 返回看板</button>
+      <div class="dag-ttl"><h2><b>${job.isTpl?'▤':'▹'}</b>${esc(job.goal_id)}</h2><p>${esc(job.goal||'')}</p></div>
+      ${kindTag}
+    </div>
+    <div class="dag-body">
+      <div class="dag-canvas">${dagSvg(job)}</div>
+      <div class="dag-side" id="dagSide">${renderSide(job)}</div>
+    </div>`;
+  const nc=o.querySelector('.dag-canvas'); if(nc){ nc.scrollLeft=sl; nc.scrollTop=stp; }
+  const nsd=o.querySelector('.dag-side'); if(nsd) nsd.scrollTop=sst;   // 恢复侧栏滚动位
+  applyDataHi(dagSel);   // 重绘后保留数据依赖高亮
+  maybeTail(job);   // 依选中节点是否运行中，启停实时对话尾读
+}
+function selectNode(tid){
+  dagSel = tid; dagView = 'node'; const job=curDag(); const s=document.getElementById('dagSide');
+  if(s&&job) s.innerHTML = renderSide(job);
+  document.querySelectorAll('#dagOv .dnode').forEach(n=>n.classList.toggle('sel', n.dataset.tid===tid));
+  document.querySelectorAll('#dagOv .dedge, #dagOv .redge').forEach(e=>e.classList.toggle('hot', e.dataset.from===tid||e.dataset.to===tid));
+  applyDataHi(tid);
+  maybeTail(job);
+}
+/* 数据依赖高亮：选中节点的数据来源标「供数据」，从选中节点取数据的下游标「取数据」 */
+function applyDataHi(tid){
+  const gs=[...document.querySelectorAll('#dagOv .dnode')];
+  const me=gs.find(g=>g.dataset.tid===tid);
+  const mine=me&&me.dataset.din?me.dataset.din.split(','):[];
+  gs.forEach(g=>{
+    const din=g.dataset.din?g.dataset.din.split(','):[];
+    g.classList.toggle('dsrc', mine.includes(g.dataset.tid));
+    g.classList.toggle('ddst', !!tid && din.includes(tid));
+  });
+}
+function switchSideView(v){
+  dagView = v; const job=curDag(); const s=document.getElementById('dagSide');
+  if(s&&job) s.innerHTML = renderSide(job);
+  if(v==='global') stopTail(); else maybeTail(job);
+}
+/* 依赖分层：depth=从根节点起的最长路径，作为水平列；环有保护 */
+function dagLayout(tasks){
+  const byId={}; tasks.forEach(t=>byId[t.task_id]=t);
+  const depth={};
+  function d(id, seen){
+    if(depth[id]!=null) return depth[id];
+    if(seen.has(id)) return 0;
+    seen.add(id);
+    const needs=((byId[id]||{}).needs||[]).filter(n=>byId[n]);
+    const v = needs.length ? Math.max(...needs.map(n=>d(n,seen)))+1 : 0;
+    seen.delete(id);
+    return depth[id]=v;
+  }
+  tasks.forEach(t=>d(t.task_id,new Set()));
+  const layers={}; tasks.forEach(t=>{ const L=depth[t.task_id]; (layers[L]=layers[L]||[]).push(t); });
+  return {depth, layers};
+}
+/* 依赖边分两类：
+   - 流程线：needs 的传递约简——走向上真正决定先后的边，照常画实线；
+   - 数据依赖：其余 needs（已被另一条路径间接保证先后，只因 see_artifacts⊆needs 才写进来的跨层继承）。
+     不画常驻线：节点右下角标 ⇠N，选中节点时才以点线浮现它从哪些上游取数据。 */
+function splitDeps(tasks){
+  const byId={}; tasks.forEach(t=>byId[t.task_id]=t);
+  const anc={};
+  function A(id, seen){                        // id 的全部传递上游（环有保护）
+    if(anc[id]) return anc[id];
+    const s=new Set(); if(seen.has(id)) return s; seen.add(id);
+    ((byId[id]||{}).needs||[]).filter(n=>byId[n]).forEach(n=>{ s.add(n); A(n,seen).forEach(x=>s.add(x)); });
+    seen.delete(id); return anc[id]=s;
+  }
+  const flow=[], data=[];
+  tasks.forEach(t=>{
+    const needs=(t.needs||[]).filter(n=>byId[n]);
+    needs.forEach(n=>{
+      const implied=needs.some(m=>m!==n && A(m,new Set()).has(n));
+      (implied?data:flow).push([n,t.task_id]);
+    });
+  });
+  return {flow, data};
+}
+function dagSvg(job){
+  const tasks=job.tasks||[];
+  if(!tasks.length) return '<div class="det-empty">此 Job 没有任务节点</div>';
+  const {layers}=dagLayout(tasks);
+  const {flow, data}=splitDeps(tasks);
+  const colW=240,rowH=98,nodeW=182,nodeH=66,padX=26,padY=30;
+  const padTop=padY;
+  const pos={}; let maxL=0,maxRows=0;
+  Object.keys(layers).map(Number).sort((a,b)=>a-b).forEach(L=>{
+    maxL=Math.max(maxL,L); maxRows=Math.max(maxRows,layers[L].length);
+    layers[L].forEach((t,i)=>{ pos[t.task_id]={x:padX+L*colW, y:padTop+i*rowH}; });
+  });
+  const W=padX*2+maxL*colW+nodeW, H=padTop+padY+Math.max(1,maxRows)*rowH;
+  let edges='';
+  flow.forEach(([n,tid])=>{
+    const a=pos[n],b=pos[tid]; if(!a||!b) return;
+    const x1=a.x+nodeW,y1=a.y+nodeH/2,x2=b.x,y2=b.y+nodeH/2,mx=(x1+x2)/2;
+    const hot=(dagSel===n||dagSel===tid)?' hot':'';
+    edges+=`<path class="dedge${hot}" data-from="${esc(n)}" data-to="${esc(tid)}"
+      d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}" marker-end="url(#arw)"/>`;
+  });
+  // 数据依赖：不画线，记到节点 data-din 上，选中时由 applyDataHi 高亮来源/去向节点
+  const dataIn={};
+  data.forEach(([n,tid])=>{ if(pos[n]&&pos[tid]) (dataIn[tid]=dataIn[tid]||[]).push(n); });
+  // 打回边：有 reject_to 的节点回指其可打回目标，从底部绕行下方、琥珀虚线，区别于依赖边
+  let redges='';
+  tasks.forEach(t=>(t.reject_to||[]).forEach(tgt=>{
+    const a=pos[t.task_id],b=pos[tgt]; if(!a||!b) return;
+    const x1=a.x+nodeW/2,y1=a.y+nodeH,x2=b.x+nodeW/2,y2=b.y+nodeH;
+    const dip=Math.max(y1,y2)+46, mx=(x1+x2)/2;
+    redges+=`<path class="redge" data-from="${esc(t.task_id)}" data-to="${esc(tgt)}"
+      d="M${x1},${y1} C${x1},${dip} ${x2},${dip} ${x2},${y2}" marker-end="url(#arw-rej)"/>`;
+    if(t.reject_count) redges+=`<text class="rlbl" x="${mx}" y="${dip+2}" text-anchor="middle">↩${t.reject_count}</text>`;
+  }));
+  const nodes=tasks.map(t=>dagNode(t,pos[t.task_id],nodeW,nodeH,dataIn[t.task_id]||[])).join('');
+  const Hd = H + (redges?60:0);   // 给下方打回边留出画布高度
+  const legend=`<div class="dag-legend"><span><i></i>流程走向</span>${redges?'<span><i class="rj"></i>打回回路</span>':''}${data.length?'<span><i class="dt"></i>数据依赖 ⇠N（选中节点，青绿框标出供/取数据的节点）</span>':''}</div>`;
+  return legend+`<svg width="${W}" height="${Hd}" viewBox="0 0 ${W} ${Hd}">
+    <defs><marker id="arw" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#3a4c74"/></marker>
+<marker id="arw-rej" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+      <path d="M0,0 L7,3 L0,6 Z" fill="#ff9d5c"/></marker></defs>
+    ${edges}${redges}${nodes}</svg>`;
+}
+function dagNode(t,p,w,h,din){
+  const ndata=din.length;
+  if(!p) return '';
+  const sel=t.task_id===dagSel?' sel':'';
+  const esc2=t.escalated?' esc':'';
+  const _STL={template:'蓝图',awaiting_expansion:'待展开'};
+  const _td=taskDur(t);
+  const st=_STL[t.status] || (t.status.toUpperCase()+(_td?(' · '+_td):''));
+  const who=t.status==='template' ? ((t.capabilities||[]).join(',')||'通用')
+    : (t.agent||((t.status==='pending'||t.status==='ready')?((t.capabilities||[]).join(',')||'—'):'—'));
+  const nart=(t.artifacts||[]).length;
+  const rej=(t.reject_count||0)
+    ? `<text class="dn-rej" x="${w-12}" y="16" text-anchor="end">↩${t.reject_count}</text>` : '';
+  const esc3=t.escalated ? `<text class="dn-esc" x="${w-(t.reject_count?34:12)}" y="17" text-anchor="end">⚠</text>` : '';
+  // fan-out 模板节点：画两层错位「幽灵卡」在背后表示「运行期会展开成多个」，右上角标 ⑃×N（N=并发上限）。
+  const fo=t.fanout;
+  const mp=fo?(fo.max_parallel||0):0;
+  const stack=fo?`<rect class="dn-ghost" x="10" y="10" width="${w}" height="${h}" rx="3"></rect>
+    <rect class="dn-ghost" x="5" y="5" width="${w}" height="${h}" rx="3"></rect>`:'';
+  const fbadge=fo?`<text class="dn-fan" x="${w-12}" y="16" text-anchor="end">⑃×${mp}</text>`:'';
+  const foCls=fo?' fanout':'';
+  // 标签挂在节点框外右上方，不与 task_id / 打回徽标抢位
+  const dtag=`<text class="dn-dtag src" x="${w-2}" y="-6" text-anchor="end">⇢ 供数据</text><text class="dn-dtag dst" x="${w-2}" y="-6" text-anchor="end">⇠ 取数据</text>`;
+  return `<g class="dnode s-${esc(t.status)}${sel}${esc2}${foCls}" data-tid="${esc(t.task_id)}" data-din="${esc(din.join(','))}"
+      transform="translate(${p.x},${p.y})" onclick="selectNode('${esc(t.task_id)}')">
+    ${stack}
+    <rect width="${w}" height="${h}" rx="3"></rect>
+    <text class="dn-id" x="12" y="24">${esc(clip(t.task_id,18))}</text>
+    <text class="dn-sub" x="12" y="42">${esc(clip(who,24))}</text>
+    <text class="dn-st" x="12" y="58">${esc(st)}</text>
+    ${fo?'':rej}${fo?'':esc3}${fbadge}${dtag}
+    ${nart?`<text class="dn-sub" x="${w-12}" y="58" text-anchor="end">▤ ${nart}</text>`:''}
+    ${ndata?`<text class="dn-data" x="${w-(nart?44:12)}" y="58" text-anchor="end"><title>另从 ${ndata} 个跨层上游继承产物（选中本节点，来源节点以青绿框标出）</title>⇠${ndata}</text>`:''}
+  </g>`;
+}
+/* 右侧栏：全局看板 / 节点详情 双视图（打开流程图默认全局） */
+const _SC={done:'var(--done)',dispatched:'var(--run)',failed:'var(--fail)',ready:'var(--ready)',
+  pending:'var(--pend)',skipped:'var(--skip)',bypassed:'var(--bypass)',awaiting_input:'var(--await)',
+  awaiting_expansion:'var(--fan)',template:'var(--gold)'};
+const _SL={done:'完成',dispatched:'执行中',failed:'失败',ready:'就绪',pending:'等待',
+  skipped:'跳过',bypassed:'绕过',awaiting_input:'待裁决',awaiting_expansion:'待展开',template:'蓝图'};
+function renderSide(job){
+  const tabs=`<div class="side-tabs">
+    <button class="side-tab${dagView==='global'?' on':''}" onclick="switchSideView('global')">全局看板</button>
+    <button class="side-tab${dagView==='node'?' on':''}" onclick="switchSideView('node')">节点详情</button></div>`;
+  return tabs + (dagView==='global' ? globalPanel(job) : detailPanel(job));
+}
+function artLink(a){ const bn=String(a).split('/').pop();
+  return `<a class="det-art" href="/file?p=${encodeURIComponent(a)}" target="_blank" rel="noopener"
+    title="点击在新标签打开">▤ ${esc(bn)} <span>↗</span><br><span>${esc(a)}</span></a>`; }
+function globalPanel(job){
+  const tasks=job.tasks||[];
+  // 1) 状态概览
+  const cnt={}; tasks.forEach(t=>cnt[t.status]=(cnt[t.status]||0)+1);
+  const counts=Object.keys(cnt).sort().map(s=>`<span class="gv-c"><i style="background:${_SC[s]||'var(--soft)'}"></i>${_SL[s]||esc(s)} <b>${cnt[s]}</b></span>`).join('');
+  const overview=`<div class="det-sec"><h4>状态概览 · ${job.isTpl?'蓝图步骤':'节点'} ${tasks.length}</h4><div class="gv-counts">${counts}</div></div>`;
+  if(job.isTpl){   // 模板：没有运行态/产物/打回，给出占位槽与步骤清单
+    const slots=(job.slots||[]).length?`<div class="det-slots">${job.slots.map(s=>`<span class="stag">${esc(s)}</span>`).join('')}</div>`
+      :'<div class="det-txt" style="color:var(--dim)">无占位槽</div>';
+    return overview+`<div class="det-sec"><h4>模板占位槽 · Slots</h4>${slots}</div>`;
+  }
+  // 2) 打回记录（含升级）
+  const esc_tasks=tasks.filter(t=>t.escalated);
+  const escBanner=esc_tasks.map(t=>`<div class="rej-esc">⚠ <b>${esc(t.task_id)}</b> 打回已达上限、待协调者裁决<br>${esc(t.awaiting_reason||'')}</div>`).join('');
+  const rejLog=[];
+  tasks.forEach(t=>(t.rejections||[]).forEach(r=>rejLog.push({to:t.task_id,...r})));
+  rejLog.sort((a,b)=>(a.ts||0)-(b.ts||0));
+  const rejItems = rejLog.length ? rejLog.map((r,i)=>{
+    const ev=(r.evidence||[]).map(artLink).join('');
+    const ts=r.ts?new Date(r.ts*1000).toLocaleString():'';
+    return `<div class="rej-item"><div class="rh">#${i+1} ${esc(r.from||'?')}<span class="ar">↩打回</span>${esc(r.to)}</div>
+      <div class="rr">${esc(r.reason||'')}</div>${ev}${ts?`<div class="rt">${esc(ts)}</div>`:''}</div>`;
+  }).join('') : '<div class="det-txt" style="color:var(--dim)">本流程暂无打回</div>';
+  const rejSec=`<div class="det-sec"><h4>打回记录 · ${rejLog.length}</h4>${escBanner}${rejItems}</div>`;
+  // 3) 全局产出（按节点分组，可折叠）
+  const grps=tasks.filter(t=>(t.artifacts||[]).length).map(t=>
+    `<div class="gv-grp"><div class="gh">${esc(t.task_id)}<b>${t.artifacts.length} 件</b></div>${t.artifacts.map(artLink).join('')}</div>`).join('')
+    || '<div class="det-txt" style="color:var(--dim)">尚无任何产物</div>';
+  const nart=tasks.reduce((a,t)=>a+((t.artifacts||[]).length),0);
+  const artSec=`<div class="det-sec"><h4 class="gv-fold" onclick="toggleGvArt()">`
+    +`<span class="fc" id="gvArtCaret">${gvArtOpen?'▾':'▸'}</span>全局产出 · Artifacts <b>${nart}</b></h4>`
+    +`<div id="gvArtBody" style="${gvArtOpen?'':'display:none'}">${grps}</div></div>`;
+  return overview+timingSec(job)+rejSec+artSec;
+}
+// 全局看板「执行计时」：Job 墙钟 + 按 agent 聚合（次数/成败/净执行总·均·最长/等人）
+function timingSec(job){
+  const jt=job.timing||{}, ag=job.agent_timing||[];
+  const sum=`<div class="tm-sum">Job 墙钟 <b>${dur(jt.wall_s)}</b>${job.complete?'':' <span style="color:var(--dim)">(进行中)</span>'}
+    · 任务净执行合计 <b>${dur(jt.total_active_s)}</b></div>`;
+  const body=ag.length ? `<table class="tm-tbl"><tr><th>Agent</th><th>次数</th><th>成/败</th><th>净执行合计</th><th>平均</th><th>最长</th><th>等人</th></tr>`
+    + ag.map(a=>`<tr><td><span class="alink" onclick="openAgent('${esc(a.agent)}')">${esc(a.agent)}</span>${a.running?` <span style="color:var(--run)">●${a.running}</span>`:''}</td>
+      <td>${a.runs}</td><td><span style="color:var(--done)">${a.done}</span>/<span style="color:${a.failed?'var(--fail)':'var(--dim)'}">${a.failed}</span></td>
+      <td>${dur(a.total_active_s)}</td><td>${dur(a.avg_active_s)}</td><td>${dur(a.max_active_s)}</td><td>${dur(a.total_awaiting_s)}</td></tr>`).join('')
+    + '</table>'
+    : '<div class="det-txt" style="color:var(--dim)">尚无执行记录（旧 Job 或未派发）</div>';
+  return `<div class="det-sec"><h4>执行计时 · Agent 耗时</h4>${sum}${body}</div>`;
+}
+// 节点详情「执行记录」：每次尝试一行（agent/开始/净执行/等人/结果）
+function runsSec(t){
+  const runs=t.runs||[];
+  if(!Array.isArray(runs)||!runs.length) return '';
+  const rows=runs.map(r=>{
+    const o=r.ended_at==null?['执行中','run']:(_OUT[r.outcome]||[r.outcome||'—','']);
+    const st=r.started_at?evtime(r.started_at):'—';
+    const tip=`排队 ${dur(r.queue_s)} · 拉起 ${dur(r.provision_s)} · 墙钟 ${dur(r.wall_s)}`
+      +(r.end_source==='observed'?' · 结束时刻按观测记（无 outbox 时间）':'');
+    return `<tr title="${esc(tip)}"><td>#${r.attempt??'?'} ${esc(r.agent||'')}</td><td>${st}</td>
+      <td>${dur(r.active_s)}</td><td>${dur(r.awaiting_s)}</td><td class="${o[1]}">${esc(o[0])}</td></tr>`;}).join('');
+  return `<div class="det-sec"><h4>执行记录 · ${runs.length}</h4><table class="tm-tbl">
+    <tr><th>尝试</th><th>开始</th><th>净执行</th><th>等人</th><th>结果</th></tr>${rows}</table></div>`;
+}
+function toggleGvArt(){
+  gvArtOpen=!gvArtOpen;                       // 就地切换，不整栏重渲染 → 不动滚动位
+  const b=document.getElementById('gvArtBody'), c=document.getElementById('gvArtCaret');
+  if(b) b.style.display=gvArtOpen?'':'none';
+  if(c) c.textContent=gvArtOpen?'▾':'▸';
+}
+/* 侧栏「Agent 配置」按钮：已分派 → 该 agent；未分派/蓝图 → 能力命中的候选 agent（按命中数排序） */
+function agentBtns(t){
+  const btn=(n,sub)=>`<button class="agt-btn" onclick="openAgent('${esc(n)}')" title="查看 ${esc(n)} 的配置与 skill">⚙ <b>${esc(n)}</b>${sub?`<span>${sub}</span>`:''}</button>`;
+  if(t.agent) return `<div class="det-agt">${btn(t.agent,'查看 Agent 配置')}</div>`;
+  const need=t.capabilities||[];
+  const cands=((lastState&&lastState.agents)||[])
+    .map(a=>({a, hit:(a.capabilities||[]).filter(c=>need.includes(c)).length}))
+    .filter(x=>x.hit>0).sort((x,y)=>y.hit-x.hit||x.a.name.localeCompare(y.a.name));
+  if(!cands.length) return need.length
+    ? `<div class="det-agt"><span class="hint" style="color:var(--reject)">⚠ 没有 agent 具备能力 ${need.map(esc).join(', ')}</span></div>` : '';
+  return `<div class="det-agt"><span class="hint">候选 Agent（按能力匹配，派发时择一）</span>${cands.map(x=>btn(x.a.name,(x.a.skills||[]).length+' skill')).join('')}</div>`;
+}
+function detailPanel(job){
+  const t=(job.tasks||[]).find(x=>x.task_id===dagSel);
+  if(!t) return '<div class="det-empty">点选左侧节点查看详情</div>';
+  const row=(k,v)=>`<div class="det-row"><div class="k">${k}</div><div class="v">${v}</div></div>`;
+  // 依赖拆成「流程上游」（图上实线）与「数据依赖」（跨层继承产物，图上选中才浮现的点线）
+  const {flow:_fl, data:_dt}=splitDeps(job.tasks||[]);
+  const flowUp=_fl.filter(e=>e[1]===t.task_id).map(e=>e[0]);
+  const dataUp=_dt.filter(e=>e[1]===t.task_id).map(e=>e[0]);
+  const needs=flowUp.length?flowUp.map(esc).join(', '):'—';
+  const dataRow=dataUp.length?row('数据依赖', `<span style="color:var(--fan)">⇠ ${dataUp.map(esc).join(', ')}</span>`):'';
+  const inh=(t.see_artifacts||[]).length?row('继承产物', (t.see_artifacts||[]).map(esc).join(', ')):'';
+  const caps=(t.capabilities||[]).length?(t.capabilities||[]).map(esc).join(', '):'—';
+  const expect=t.expect?`<div class="det-sec"><h4>期望产物</h4><div class="det-txt">${esc(t.expect)}</div></div>`:'';
+  if(job.isTpl){                                  // 模板：只读蓝图，无运行态/产物
+    const slots=(job.slots||[]).length
+      ? `<div class="det-slots">${job.slots.map(s=>`<span class="stag">${esc(s)}</span>`).join('')}</div>`
+      : '<div class="det-txt" style="color:var(--dim)">无占位槽，可直接载入</div>';
+    const goal=t.goal?`<div class="det-sec"><h4>步骤目标</h4><div class="det-txt">${slotHi(t.goal)}</div></div>`:'';
+    const foRow=t.fanout?row('动态并行', `⑃ fan-out · 运行期展开、同时并发上限 ${t.fanout.max_parallel||'?'}`):'';
+    return `<div class="det-h">${esc(t.task_id)}</div>
+      <span class="det-badge" style="color:var(--gold);border-color:rgba(181,137,63,.45)">蓝图步骤</span>
+      ${agentBtns(t)}
+      ${row('能力', caps)}
+      ${row('流程上游', needs)}${dataRow}${inh}
+      ${foRow}
+      ${row('重试', '最多 '+((t.max_retries||0)+1)+' 次')}
+      <div class="det-sec"><h4>模板占位槽 · Slots</h4>${slots}</div>
+      ${goal}${expect}`;
+  }
+  const cmap={done:['已完成','var(--done)','rgba(47,133,90,.4)'],dispatched:['执行中','var(--run)','rgba(37,99,235,.42)'],
+    failed:['失败','var(--fail)','rgba(214,69,69,.4)'],ready:['就绪','var(--ready)','var(--line-bright)'],
+    pending:['等待依赖','var(--dim)','var(--line)'],skipped:['跳过','var(--skip)','var(--line)'],
+    bypassed:['主动绕过','var(--bypass)','rgba(130,87,230,.4)'],
+    awaiting_input:['待人裁决','var(--await)','rgba(202,138,4,.45)'],
+    awaiting_expansion:['待展开','var(--fan)','rgba(44,154,143,.45)']};
+  const cm=cmap[t.status]||[t.status,'var(--soft)','var(--line)'];
+  const tm=t.timing||{};
+  const el=t.status==='dispatched'&&t.elapsed_s!=null ? '已运行 '+dur(t.elapsed_s)
+    : (tm.active_s!=null ? '净执行 '+dur(tm.active_s) : '—');
+  const elMore=[tm.queue_s!=null?'排队 '+dur(tm.queue_s):'', tm.awaiting_s?'等人 '+dur(tm.awaiting_s):'',
+    (tm.runs||0)>1?'累计净执行 '+dur(tm.total_active_s):''].filter(Boolean).join(' · ');
+  const arts=(t.artifacts||[]).map(a=>{const bn=String(a).split('/').pop();
+    return `<a class="det-art" href="/file?p=${encodeURIComponent(a)}" target="_blank" rel="noopener"
+      title="点击在新标签打开">▤ ${esc(bn)} <span>↗</span><br><span>${esc(a)}</span></a>`;}).join('')
+    || '<div class="det-empty" style="padding:14px">尚无产物</div>';
+  const outcome=t.error?`<div class="det-sec"><h4>错误</h4><div class="det-txt err">${esc(t.error)}</div></div>`
+    :(t.summary?`<div class="det-sec"><h4>结果摘要</h4><div class="det-txt">${esc(t.summary)}</div></div>`:'');
+  // 运行中且有 herdr agent 名 → 内嵌一段实时对话（按需拉取，见 startTail/fetchTail）
+  const live=(t.status==='dispatched'&&t.herdr_name)
+    ? `<div class="det-sec live"><h4>实时对话 · Live<span class="live-dot"></span>
+         <span class="live-src" title="${esc(t.herdr_name)}">${esc(t.herdr_name)}</span></h4>
+       <div class="term" id="liveTerm">… 载入中</div></div>`
+    : '';
+  // 打回：本节点可打回哪些上游 / 被打回过几次 / 历次意见（凭证）
+  const canRej=(t.reject_to||[]).length?`${row('可打回', (t.reject_to||[]).map(esc).join(', ')+' · 上限 '+((t.max_rejects||0)||'默认'))}`:'';
+  // fan-out：待展开模板 / 展开出的子任务（同组共享并发闸）
+  const foRow=t.fanout
+    ? row('动态并行', `⑃ fan-out 模板 · 同时并发上限 ${t.fanout.max_parallel||'?'}；读上游产出后 expand`)
+    : (t.fanout_group ? row('并行分片', `⑃ 组 ${esc(t.fanout_group)} · 组内同时并发上限 ${t.fanout_max_parallel||'?'}`) : '');
+  let rejSec='';
+  if(t.escalated) rejSec+=`<div class="rej-esc">⚠ 打回已达上限、待协调者裁决<br>${esc(t.awaiting_reason||'')}</div>`;
+  else if(t.status==='awaiting_input') rejSec+=`<div class="ask-human">🙋 需要人决策：worker 停下等待答复${t.awaiting_reason?'<br>'+esc(t.awaiting_reason):''}</div>`;
+  if((t.rejections||[]).length){
+    const items=t.rejections.map((r,i)=>{const ev=(r.evidence||[]).map(artLink).join('');
+      const ts=r.ts?new Date(r.ts*1000).toLocaleString():'';
+      return `<div class="rej-item"><div class="rh">#${i+1} ${esc(r.from||'?')}<span class="ar">↩打回</span>${esc(t.task_id)}</div>
+        <div class="rr">${esc(r.reason||'')}</div>${ev}${ts?`<div class="rt">${esc(ts)}</div>`:''}</div>`;}).join('');
+    rejSec+=`<div class="det-sec"><h4>被打回记录 · ${t.rejections.length}</h4>${items}</div>`;
+  }
+  return `<div class="det-h">${esc(t.task_id)}</div>
+    <span class="det-badge" style="color:${cm[1]};border-color:${cm[2]}">${cm[0]}</span>
+    ${agentBtns(t)}
+    ${row('Agent', t.agent?`<span class="alink" onclick="openAgent('${esc(t.agent)}')" title="查看配置与 skill">${esc(t.agent)}</span>`:'—')}
+    ${row('能力', caps)}
+    ${row('流程上游', needs)}${dataRow}${inh}
+    ${foRow}
+    ${(t.reject_count||0)?row('被打回', t.reject_count+' 次'):''}
+    ${canRej}
+    ${row('尝试', (t.attempts||0)+' / '+((t.max_retries||0)+1))}
+    ${row('耗时', el+(elMore?` <span style="color:var(--dim)">· ${elMore}</span>`:''))}
+    ${row('Pane', t.pane?esc(t.pane):'—')}
+    ${live}${rejSec}${runsSec(t)}
+    <div class="det-sec"><h4>生成物 · Artifacts</h4>${arts}</div>
+    ${expect}${outcome}`;
+}
+</script>
+</body>
+</html>

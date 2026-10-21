@@ -1,0 +1,16 @@
+version: 1
+herdr:
+  workspace: MyTeam-workers
+defaults:
+  runtime:
+    cli: ducc
+    kind: claude
+    model: DeepSeek-V4.1-Flash
+    flags:
+    - --dangerously-skip-permissions
+  lifecycle: on-demand
+  worker_hidden_skills:
+  - team-build
+  - team-run
+  - agent-create
+agents: []
