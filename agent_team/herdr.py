@@ -231,7 +231,7 @@ def start_agent(pane_id: str, name: str, kind: str,
     """在既有 shell pane 上启动 agent；成功返回后 agent 已就绪。返回 agent 名。
 
     `model` 非空时作为 CLI 参数注入到底层 agent（`herdr agent start` 本身无 --model，
-    只把 `--` 之后的参数透传给底层 CLI；ducc/claude 认 `--model <model>`）；置于 flags 前，
+    只把 `--` 之后的参数透传给底层 CLI；claude 认 `--model <model>`）；置于 flags 前，
     manifest 里显式写的 flags 可覆盖同名项。
 
     真实执行的两类头号瞬时错误（压测实测）都在这里消化，不再把偶发抖动放大成整轮崩溃：

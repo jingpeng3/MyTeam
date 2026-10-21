@@ -125,7 +125,7 @@ def _write_worker_skill_overrides(paths: Paths, cwd: str, m: AgentManifest) -> N
     """在 worker 独占 cwd 写 .claude/settings.json，把协调者专用 skill 对该 worker 关掉。
 
     见 config.worker_settings_overrides：用 cwd 内 settings.json 而非 `--settings` flag（后者会让
-    ducc 丢鉴权）；也不放在 agents/<name>/ 下——实测 settings.json **不向上查找**，祖先目录那份不会
+    claude 丢鉴权）；也不放在 agents/<name>/ 下——实测 settings.json **不向上查找**，祖先目录那份不会
     被读到，只有 worker 的 primary working dir 里的才生效，故必须每次分派现写。隐藏列表 =
     团队默认 ∪ 该 agent 的 hidden_skills；两级都空时返回空、跳过不写。每次（重）派发都重写，
     idempotent；cwd 随 pane 回收即清，无残留。写失败不阻断分派（skill 裁剪是优化非关键路径）。

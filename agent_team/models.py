@@ -27,7 +27,7 @@ def split_runtime_key(key: str) -> tuple[str, str]:
     return gid, tid
 
 # 全框架默认 runtime：新建 agent 模板、Runtime 缺省与 merge 回退都引用这里，避免三处漂移。
-DEFAULT_CLI = "ducc"
+DEFAULT_CLI = "claude"
 DEFAULT_KIND = "claude"     # herdr agent kind
 
 

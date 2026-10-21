@@ -71,7 +71,7 @@ _AWAIT_PHRASES = re.compile(
     r"|\(y/n\)|\[y/n\]", re.IGNORECASE)
 # 形如 <你的问题> 的尖括号模板占位符：这是引导语里的示例残留，不是 worker 的真实问题。
 _PLACEHOLDER_Q_RE = re.compile(r"^<[^>]*>$")
-# 真实 ducc/herdr pane 末尾恒为 TUI chrome（提示符/分隔线/状态行/权限提示）——自由文本兜底须跳过，
+# 真实 claude/herdr pane 末尾恒为 TUI chrome（提示符/分隔线/状态行/权限提示）——自由文本兜底须跳过，
 # 否则末行永远扫到 chrome、兜底恒失效（漏报把等人 worker 当挂死）。
 _PANE_CHROME_RE = re.compile(
     r"^[>›❯$#*•\s]*$|^[-─—=_]{3,}$|bypass permissions|shift\+tab|for agents|"

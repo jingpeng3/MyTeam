@@ -9,7 +9,7 @@ description: 对话式为 agent-team 框架新建单个 agent（写 agent.yaml +
 
 ## 0. 前置检查
 确认当前在 agent-team 项目：存在 `team.yaml` 与 `agent_team/` 包；否则告知用户本 skill 只在该项目内可用并停止。
-先 `team agent list` 看已有 agent——**能复用就别新建**（能力标签能覆盖需求就直接用现有的）。
+先 `uv run team agent list` 看已有 agent——**能复用就别新建**（能力标签能覆盖需求就直接用现有的）。
 
 ## 0.5 搜索确认真实信息（写进 agent 前先核实，绝不臆断）
 往 `prompt.md` / `workspace/CLAUDE.md` / 预置的 index 里写任何**具体信息**前，先用搜索/读码/看文件把它**确认成事实**——凡是能被验证的，就不要凭记忆或想当然写：
@@ -37,7 +37,7 @@ description: 对话式为 agent-team 框架新建单个 agent（写 agent.yaml +
 
 ## 2. 建 agent
 ```bash
-team agent create <name> --role "<角色>" --capabilities <a,b> [--max-concurrent N]
+uv run team agent create <name> --role "<角色>" --capabilities <a,b> [--max-concurrent N]
 ```
 这会生成 `agents/<name>/{agent.yaml, prompt.md, workspace/}` 并把 `<name>` 追加进 `team.yaml` 的 `agents:`（**会重写 team.yaml、丢注释，值不变**）。
 
@@ -48,8 +48,8 @@ team agent create <name> --role "<角色>" --capabilities <a,b> [--max-concurren
 
 ## 4. 自检
 ```bash
-team agent show <name>           # 确认 role / capabilities / model
-team agent list                  # 确认已登记进 team.yaml
+uv run team agent show <name>           # 确认 role / capabilities / model
+uv run team agent list                  # 确认已登记进 team.yaml
 ```
 注意：`agent show` **不回显 `max_concurrent`**——要确认并发上限，直接看 `agents/<name>/agent.yaml`。
 确认能力标签拼写与团队约定一致（大小写、连字符）；这是将来任务能否匹配到它的关键。
@@ -62,5 +62,5 @@ team agent list                  # 确认已登记进 team.yaml
 - **不臆造事实**：写进 prompt/CLAUDE.md/预置 index 的路径、项目清单、框架机制、团队约定，都按 §0.5 先搜索/读码/看文件核实；核实不了就问用户，别固化没证实的信息。
 - name 必须合法且唯一；已存在会报错（改名或确认是否要改现有 agent）。
 - 建/删 agent 都会重写 `team.yaml`（丢注释、值不变），提交前扫一眼 diff。
-- 删除用 `team agent remove <name>`：默认**只从 team.yaml 注销、保留 `agents/<name>/` 目录**；加 `--purge` 才连目录带信号/产物一并删除（高风险，先与用户确认）。
+- 删除用 `uv run team agent remove <name>`：默认**只从 team.yaml 注销、保留 `agents/<name>/` 目录**；加 `--purge` 才连目录带信号/产物一并删除（高风险，先与用户确认）。
 - 不臆造角色职责；prompt.md 里只写用户认可的设定。

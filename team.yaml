@@ -3,9 +3,9 @@ herdr:
   workspace: MyTeam-workers
 defaults:
   runtime:
-    cli: ducc
+    cli: claude
     kind: claude
-    model: DeepSeek-V4.1-Flash
+    model: ''
     flags:
     - --dangerously-skip-permissions
   lifecycle: on-demand

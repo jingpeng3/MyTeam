@@ -61,7 +61,10 @@ pyproject.toml         依赖声明 + ruff/pytest 配置
 - Python 3.11+
 - PyYAML —— 唯一第三方运行时依赖（其余全用标准库），版本钉在 `pyproject.toml`。
 
-安装 `team` CLI（skill 与协调者都只用它）：
+skill 与协调者都在仓库根用 `uv run team …` 调用 CLI：uv 首次运行时自动建 `.venv` 并装好本仓库，
+跑的始终是本仓库代码，不依赖全局安装。
+
+可选：把 `team` 装成全局命令。注意包名同为 `agent-team`，会覆盖别的仓库（如 TEAMS）此前装的全局 `team`：
 
 ```bash
 scripts/install.sh           # 安装/重装 team CLI（可重复执行）
@@ -91,20 +94,20 @@ herdr update
 
 **3. 在 herdr 里、于项目当前目录启动协调者**
 
-在项目根目录（本仓库）下启动 herdr，拉起交互 agent（Ducc / Claude Code）——它就是协调者，无需设置任何环境变量。之后整个流程由 skill 驱动、全程对话完成：
+在项目根目录（本仓库）下启动 herdr，拉起交互 agent（Claude Code）——它就是协调者，无需设置任何环境变量。之后整个流程由 skill 驱动、全程对话完成：
 
 - **建流程** → 说「建个团队 / 帮我编排 XX」（`team-build`），或「加个 agent」（`agent-create`），对话式澄清目标、创建 agent、写出任务流程。
 - **看流程** → 启动 dashboard 实时查看各目标的任务 DAG、进度与流程模板：
 
   ```bash
-  team dashboard                  # 默认 http://127.0.0.1:8787
+  uv run team dashboard                  # 默认 http://127.0.0.1:8787
   # 可选：--port 9000 换端口，--host 改监听地址
   ```
 
   仅本机、无鉴权，启动后浏览器打开上述地址即可。
 - **跑流程** → 说「跑起来 / 继续跑 / 让团队干活」（`team-run`），协调者逐轮驱动到完成并汇报进度。
 
-底层的 `team` CLI 是这些 skill 使用的引擎，一般不用手动敲；需要时可自行调用（`team --help` 看全部子命令，调度命令加 `--dry-run` 只写信号、不真正拉起 worker）。在仓库内任意目录都能用；仓库外调用时回退到安装它的那个仓库。
+底层的 `team` CLI 是这些 skill 使用的引擎，一般不用手动敲；需要时在仓库根用 `uv run team …` 调用（`uv run team --help` 看全部子命令，调度命令加 `--dry-run` 只写信号、不真正拉起 worker）。
 
 ## worker 完成协议
 

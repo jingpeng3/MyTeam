@@ -13,7 +13,7 @@ description: 通过对话为 agent-team 框架创建 agent 与编排任务流程
 
 ## 0. 前置检查
 确认当前在 agent-team 项目：存在 `team.yaml` 与 `agent_team/` 包。否则告知用户本 skill 只在该项目内可用并停止。
-先 `team agent list` 看已有 agent——**能复用就别新建**（能力标签能覆盖需求就直接用现有的）。
+先 `uv run team agent list` 看已有 agent——**能复用就别新建**（能力标签能覆盖需求就直接用现有的）。
 
 ## 1. 澄清需求
 读用户给的想法，结合 TEAMS 的 DAG 编排方式，澄清到"能自己规划出完整 DAG"（看得出目标、环节、每步谁做、产物怎么流）为止。
@@ -79,7 +79,7 @@ worker 是独立 CLI 会话，**启动在自己的 `agents/<name>/workspace/`、
 按 §4 确认后的蓝图批量执行：
 1. **建 / 复用 agent**：
    ```bash
-   team agent create <name> --role <角色> --capabilities <a,b>
+   uv run team agent create <name> --role <角色> --capabilities <a,b>
    ```
    然后写 `agents/<name>/prompt.md`（人格+协议）、`agents/<name>/workspace/CLAUDE.md`（热记忆+内联规范）；按 §3 定的 skill 装配**（连同依赖）——在目标 agent 目录下执行 `npx skills add … -y`（不加 `-g`），直接落到 `agents/<name>/.claude/skills/`，绝不装全局**；调 `agent.yaml` 的 `runtime.model`/`max_concurrent`/`skills`/`hidden_skills`（`hidden_skills` 强制对该 agent 的 worker 隐藏指定 skill，并集到 `team.yaml` 的 `defaults.worker_hidden_skills`；`agent create` 默认已填协调者专用的三个）。
 2. **写 plan（任务 DAG）**：一个 plan = 一个 **Job**（按 `goal_id` 独立管理，可多 Job 并存、状态与产物互相隔离）。写到 `coordinator/plans/<goal-id>.json`：
@@ -115,15 +115,15 @@ worker 是独立 CLI 会话，**启动在自己的 `agents/<name>/workspace/`、
   ]
 }
 ```
-运行时：`fetch` 完成→`extract` 转 `awaiting_expansion`→协调者读 `fetch` summary（如「37 个」）→`team expand <gid> extract --count 12`→生成 `extract.1..12`、`merge.needs` 自动改接到全部 12 个子任务、`extract` 置 `bypassed` 容器；12 个子任务同组、同时最多 4 个在跑。
+运行时：`fetch` 完成→`extract` 转 `awaiting_expansion`→协调者读 `fetch` summary（如「37 个」）→`uv run team expand <gid> extract --count 12`→生成 `extract.1..12`、`merge.needs` 自动改接到全部 12 个子任务、`extract` 置 `bypassed` 容器；12 个子任务同组、同时最多 4 个在跑。
    产物：worker cwd 是各自 `workspace/`,跨 agent 产物走 `shared/artifacts/`;goal/`context_refs` 里直接写 `shared/artifacts/<文件>`,框架按 Job 自动命名空间到 `shared/artifacts/<goal_id>/`。
    **自检**（逐条过）：① 每个 `capabilities` 至少被一个 agent 命中；② `needs` 里 id 都存在、整图无环；③ 每个 `see_artifacts` 里的 id 都在**同任务的 needs** 里（否则载入期报错）；④ 每个 `reject_to` 里的 id 都是该节点的**传递上游/祖先**（否则载入期报错）——只能打回你消费过其产出的上游；⑤ 每个 `fanout` 节点的 goal **必须含 `{{shard}}`/`{{total}}` 槽**（否则各子任务 goal 完全一样、无法分工），且下游 join 节点 `needs` 先写该模板 id（`expand` 时自动重接线）。
 
 ### 5b. 可复用模板（骨架同、目标不同时）
 若"流程/中间节点差不多、只是每次目标不同",写成**模板**:DAG 骨架固定,把各阶段 goal 里随目标变化的部分留成 `{{槽}}`(如 `{{objective}}`)。
 ```bash
-team plan coordinator/plans/<模板>.json --show-vars             # 看需要哪些槽
-team plan coordinator/plans/<模板>.json --as <批次id> --vars-file /tmp/vars.json
+uv run team plan coordinator/plans/<模板>.json --show-vars             # 看需要哪些槽
+uv run team plan coordinator/plans/<模板>.json --as <批次id> --vars-file /tmp/vars.json
 ```
 `--as` 覆写 goal_id → 同模板可**并发**多实例、互不覆盖;短值也可 `--var K=V`;**漏填会被拒**(残留 `{{}}` 直接报错)。
 
@@ -144,13 +144,13 @@ team plan coordinator/plans/<模板>.json --as <批次id> --vars-file /tmp/vars.
 
 ## 6. 干跑验证（务必先 dry-run）
 ```bash
-team plan coordinator/plans/<goal-id>.json            # 载入为 Job;载入期即校验悬空依赖/环/see_artifacts
-team status                                           # 看该 Job 看板
-team run --dry-run             # 或 tick --dry-run 逐轮看
+uv run team plan coordinator/plans/<goal-id>.json            # 载入为 Job;载入期即校验悬空依赖/环/see_artifacts
+uv run team status                                           # 看该 Job 看板
+uv run team run --dry-run             # 或 tick --dry-run 逐轮看
 ```
 确认:ready/dispatched 推进符合依赖;`waiting_for_agent` 为空(否则是能力没对齐,回 §2 修蓝图、§3 补 skill)。
 **含 fan-out 模板时**:dry-run 里模板节点上游一完成就停在 `awaiting_expansion`（没有真实上游产出可读、协调者不介入展开），这是**预期**、不是卡死；真正的展开在 `team-run` 里由协调者读上游产出后 `expand`。dry-run 只需确认模板前的依赖链推进正常、模板如期转 `awaiting_expansion`。
-(可选)想直观看 DAG/蓝图:`team dashboard` 起本机实时看板。
+(可选)想直观看 DAG/蓝图:`uv run team dashboard` 起本机实时看板。
 
 ## 7. 交付与交接执行
 dry-run 通过即算搭好。**不要在 team-build 里真跑**——真跑是 `team-run` 的职责。告诉用户:

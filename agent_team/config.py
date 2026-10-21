@@ -193,7 +193,7 @@ def worker_settings_overrides(paths: Paths,
     既占上下文又易让 worker 误以为自己是协调者。目录作用域只能向下、无法藏住根 skill。
 
     实现选型：用 worker cwd 内的 settings.json（作为常规 settings 层，与用户级鉴权正常合并），
-    **不用 `--settings` flag**——实测 ducc 传 `--settings <json>`（哪怕 `{}`）会丢失鉴权（Not logged in）。
+    **不用 `--settings` flag**——实测 claude 传 `--settings <json>`（哪怕 `{}`）会丢失鉴权（Not logged in）。
     settings.json 只从会话 primary working dir 读、不向上查找，故落在 worker cwd 只影响该 worker，
     协调者会话（cwd=仓库根）不受影响；随 cwd 回收即清。
 
