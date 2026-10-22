@@ -6,6 +6,8 @@
 
 基于 [herdr](https://herdr.dev) 的多 agent 团队编排框架 · 当前交互会话就是协调者
 
+[English](README.en.md) · 简体中文
+
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Powered by herdr](https://img.shields.io/badge/powered%20by-herdr-8B5CF6)](https://herdr.dev)
 [![Runtime deps](https://img.shields.io/badge/runtime%20deps-PyYAML%20only-22C55E)](pyproject.toml)
