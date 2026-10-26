@@ -1188,26 +1188,65 @@ function splitDeps(tasks){
   });
   return {flow, data};
 }
+/* 列内纵向排布：节点对齐到它的主上游（流程线上游里层级最深的那个）所在行，
+   让一条链拉成直线；同一目标行的节点按剩余链长降序排，最长链占上方、短支线往下错开，
+   汇合节点跟随主链，支线从旁并入。 */
+function dagRows(tasks, depth, layers, flow, rowH, padTop){
+  const byId={}; tasks.forEach(t=>byId[t.task_id]=t);
+  const order={}; tasks.forEach((t,i)=>order[t.task_id]=i);
+  const ups={}, downs={};
+  flow.forEach(([n,tid])=>{ (ups[tid]=ups[tid]||[]).push(n); (downs[n]=downs[n]||[]).push(tid); });
+  const ht={};
+  function H(id, seen){                         // 沿流程线到汇点的最长路径（环有保护）
+    if(ht[id]!=null) return ht[id];
+    if(seen.has(id)) return 0; seen.add(id);
+    const ch=downs[id]||[];
+    const v=ch.length?Math.max(...ch.map(c=>H(c,seen)))+1:0;
+    seen.delete(id); return ht[id]=v;
+  }
+  tasks.forEach(t=>H(t.task_id,new Set()));
+  const pos={};
+  Object.keys(layers).map(Number).sort((a,b)=>a-b).forEach(L=>{
+    const items=layers[L].map(t=>{
+      const id=t.task_id;
+      const ps=(ups[id]||[]).filter(p=>pos[p]);
+      let want=padTop;
+      if(ps.length){
+        ps.sort((a,b)=>(depth[b]-depth[a])||(ht[b]-ht[a])||(pos[a].y-pos[b].y));
+        want=pos[ps[0]].y;
+      }
+      return {id, want};
+    });
+    items.sort((a,b)=>(a.want-b.want)||(ht[b.id]-ht[a.id])||(order[a.id]-order[b.id]));
+    let prev=-Infinity;
+    items.forEach(it=>{
+      const y=Math.max(it.want, prev+rowH);
+      pos[it.id]={L, y}; prev=y;
+    });
+  });
+  return pos;
+}
 function dagSvg(job){
   const tasks=job.tasks||[];
   if(!tasks.length) return '<div class="det-empty">此 Job 没有任务节点</div>';
-  const {layers}=dagLayout(tasks);
+  const {depth, layers}=dagLayout(tasks);
   const {flow, data}=splitDeps(tasks);
   const colW=240,rowH=98,nodeW=182,nodeH=66,padX=26,padY=30;
   const padTop=padY;
-  const pos={}; let maxL=0,maxRows=0;
-  Object.keys(layers).map(Number).sort((a,b)=>a-b).forEach(L=>{
-    maxL=Math.max(maxL,L); maxRows=Math.max(maxRows,layers[L].length);
-    layers[L].forEach((t,i)=>{ pos[t.task_id]={x:padX+L*colW, y:padTop+i*rowH}; });
-  });
-  const W=padX*2+maxL*colW+nodeW, H=padTop+padY+Math.max(1,maxRows)*rowH;
+  const pos=dagRows(tasks, depth, layers, flow, rowH, padTop);
+  Object.values(pos).forEach(p=>p.x=padX+p.L*colW);
+  const maxL=Math.max(0,...Object.values(pos).map(p=>p.L));
+  const maxY=Math.max(padTop,...Object.values(pos).map(p=>p.y));
+  const W=padX*2+maxL*colW+nodeW, H=maxY+rowH+padY;
   let edges='';
   flow.forEach(([n,tid])=>{
     const a=pos[n],b=pos[tid]; if(!a||!b) return;
-    const x1=a.x+nodeW,y1=a.y+nodeH/2,x2=b.x,y2=b.y+nodeH/2,mx=(x1+x2)/2;
+    const x1=a.x+nodeW,y1=a.y+nodeH/2,x2=b.x,y2=b.y+nodeH/2;
+    // 跨多列的边先沿本行水平走到目标前一列的出口，再弯入目标，避免斜穿中间列的节点
+    const xs=Math.max(x1, x2-(colW-nodeW)), mx=(xs+x2)/2;
     const hot=(dagSel===n||dagSel===tid)?' hot':'';
     edges+=`<path class="dedge${hot}" data-from="${esc(n)}" data-to="${esc(tid)}"
-      d="M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}" marker-end="url(#arw)"/>`;
+      d="M${x1},${y1} H${xs} C${mx},${y1} ${mx},${y2} ${x2},${y2}" marker-end="url(#arw)"/>`;
   });
   // 数据依赖：不画线，记到节点 data-din 上，选中时由 applyDataHi 高亮来源/去向节点
   const dataIn={};

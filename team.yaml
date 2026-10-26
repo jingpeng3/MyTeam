@@ -13,4 +13,6 @@ defaults:
   - team-build
   - team-run
   - agent-create
-agents: []
+  - team-evolve
+agents:
+- flow-retro

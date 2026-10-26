@@ -42,8 +42,8 @@ uv run team agent create <name> --role "<角色>" --capabilities <a,b> [--max-co
 这会生成 `agents/<name>/{agent.yaml, prompt.md, workspace/}` 并把 `<name>` 追加进 `team.yaml` 的 `agents:`（**会重写 team.yaml、丢注释，值不变**）。
 
 ## 3. 按需精修 manifest 与 prompt
-- `agents/<name>/agent.yaml`：`capabilities`（匹配键）、`max_concurrent`、`runtime.model`（留空则用 team 默认）、`skills`（**告知**协调者/看板该 agent 有哪些 skill，不强制）、`hidden_skills`（**强制**：该 agent 的 worker 要隐藏的 skill 名，分派时并集到 `team.yaml` 的 `defaults.worker_hidden_skills` 之上；默认已填协调者专用的 `team-build`/`team-run`/`agent-create`）。
-- `agents/<name>/prompt.md`：该 agent 的角色设定与工作习惯——**它会作为引导语发给 worker**，写清楚"你是谁、做什么、完成后写 outbox"。默认模板已含完成协议，按角色补充专业约束即可。
+- `agents/<name>/agent.yaml`：`capabilities`（匹配键）、`max_concurrent`、`runtime.model`（留空则用 team 默认）、`skills`（**告知**协调者/看板该 agent 有哪些 skill，不强制）、`hidden_skills`（**强制**：该 agent 的 worker 要隐藏的 skill 名，分派时并集到 `team.yaml` 的 `defaults.worker_hidden_skills` 之上；默认已填协调者专用的 `team-build`/`team-run`/`agent-create`/`team-evolve`）。
+- `agents/<name>/prompt.md`：该 agent 的角色设定与工作习惯——**它会作为引导语发给 worker**，写清楚"你是谁、做什么、产出什么、summary 写什么"。读 inbox → 写 outbox 的通用交付协议由框架在引导语里统一下发（`agent_team/worker_protocol.md`），**不要**在 prompt.md 里再写「完成协议」段；只有本角色特有的交付要求（summary 固定格式、PASS/REJECT 前缀、何时先不写 outbox 等）写进「产出」或「交付要点」。
 - prompt/CLAUDE.md 里凡涉及**具体路径、框架机制、团队约定**的内容，一律按 §0.5 先核实成事实再写。
 
 ## 4. 自检

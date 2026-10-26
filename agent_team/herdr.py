@@ -296,22 +296,29 @@ def agent_status(target: str) -> str:
         raise
 
 
-def read_agent(target: str, lines: int = 120, session: str | None = None) -> str:
+def read_agent(target: str, lines: int = 120, session: str | None = None,
+               live: bool = False) -> str:
     """读某 agent pane 的近段输出。
     优先 recent-unwrapped（idle 时能取到完整不换行的 scrollback 历史）；worker 正在干活时
     alt-screen 历史读不了(agent_not_idle)，退回 --source visible 取当前可见屏——正是 live 视图要的。
 
+    `live=True`：调用方已知 agent 在 working（如 monitor 刚查过状态），直接读 visible，
+    省掉一次必然报 agent_not_idle 的 recent-unwrapped 子进程调用。
+
     `session`：worker 所在的 herdr session（dashboard 从 runtime 账本取出显式传入），缺省时
     由 _run 回退到本进程的 HERDR_SESSION。跨进程读取务必带上，否则会落到 default session 报
     agent_not_found。"""
-    try:
-        res = _run(["agent", "read", target, "--source", "recent-unwrapped",
-                    "--lines", str(lines)], session=session)
-    except HerdrError as e:
-        if getattr(e, "code", "") != "agent_not_idle":
-            raise
-        res = _run(["agent", "read", target, "--source", "visible",
-                    "--lines", str(lines)], session=session)
+    visible = ["agent", "read", target, "--source", "visible", "--lines", str(lines)]
+    if live:
+        res = _run(visible, session=session)
+    else:
+        try:
+            res = _run(["agent", "read", target, "--source", "recent-unwrapped",
+                        "--lines", str(lines)], session=session)
+        except HerdrError as e:
+            if getattr(e, "code", "") != "agent_not_idle":
+                raise
+            res = _run(visible, session=session)
     return res.get("_raw") or json.dumps(res, ensure_ascii=False)
 
 

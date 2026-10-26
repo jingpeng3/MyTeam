@@ -4,10 +4,15 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from string import Template
 
 from . import signals, pane_scan
 from .config import Paths, resolve_task_workspace
 from .models import Task, AgentManifest
+
+# worker 通用交付协议（读 inbox → 执行 → 写 outbox、产物目录、等人介入）的唯一事实源：
+# agent 的 prompt.md 只写本角色的工作内容，不再各自抄一份完成协议。
+_PROTOCOL = Path(__file__).with_name("worker_protocol.md")
 
 
 def resolve_refs(paths: Paths, goal_id: str, refs: list[str]) -> list[str]:
@@ -99,7 +104,7 @@ def build_bootstrap(paths: Paths, m: AgentManifest, goal_id: str, task: Task) ->
             f"⚠ 本任务此前已被下游打回 {len(task.rejections)} 次。历次打回意见与证据如下——"
             f"请逐条针对性修复，**务必不要重复这些问题**：\n"
             + "\n".join(lines) + "\n"
-            "证据文件为绝对路径，按需直接读取核对。\n")
+            "证据文件为绝对路径，按需直接读取核对。针对意见整改，保留已达标的部分，不要推倒重来。\n")
     # 打回能力：本节点是评审/校验节点、声明了可打回的上游 → 告知如何写打回信号。
     reject_cap_note = ""
     if task.reject_to:
@@ -109,35 +114,9 @@ def build_bootstrap(paths: Paths, m: AgentManifest, goal_id: str, task: Task) ->
             f"summary=具体打回意见、artifacts=证据文件（绝对路径）。框架会把该上游连同其下游"
             f"全部重置重跑、并把你的意见+证据作为凭证注入它，随后你会被重新拉起复评。"
             f"打回有次数上限，请只在确有实质问题时打回，意见要具体可操作。\n")
-    return (
-        f"你是 team 的 {m.role or m.name}。{skills}\n"
-        f"1) 读取任务信号：{inbox}\n"
-        f"2) 你的角色说明：{persona}\n"
-        f"3) 按信号里的 goal 执行；只做该任务，不扩大范围。\n"
-        f"4) 完成或失败后，把结构化结果写入：{outbox}\n"
-        f"   字段：task_id, status(done|failed), summary, artifacts, error。\n"
-        f"   **该文件必须是纯 JSON**：不要包 ```围栏、不要前后加解释文字；"
-        f"summary 里若含引号/换行/代码请正确转义（用能序列化 JSON 的方式写，别手拼），"
-        f"长内容放产物文件、summary 只写摘要。写坏会被判「交付损坏」而误判失败。\n"
-        f"{retry_note}"
-        f"{reject_history_note}"
-        f"{reject_cap_note}"
-        f"工作目录：你的 cwd 是本任务独占的临时空间 {cwd} —— 本任务的临时/中间文件"
-        f"**默认写在这个目录内**。上级基座 workspace（含 CLAUDE.md/.claude）**默认只作只读参考**；"
-        f"**但若本任务的 goal 明确要求在基座 workspace 这一层写入/积累数据（如沉淀可复用资料、追加知识库），"
-        f"则按 goal 指定的路径写入该层是允许的**（这类持久化积累不受「只写独占目录」限制）——"
-        f"未被明确要求时，仍不要改动基座里的文件。跨任务交付的产物写到下面的绝对 artifacts 目录。\n"
-        f"注意：本任务的产物目录（绝对路径，跨任务交接的产物也写这里，下游按上报路径读取）：{art}\n"
-        f"   **所有产物必须写到这个绝对目录下**；即使 goal 文本里写的是相对的 "
-        f"'shared/artifacts/<文件>'，也要落到上面这个绝对目录，不要写到别处的扁平 shared/artifacts。\n"
-        f"   信号里的 context_refs / artifacts_dir 均为绝对路径，直接用即可，勿再拼接。\n"
-        f"   信号里若有 inherited_artifacts，是你依赖的指定上游节点产出的文件"
-        f"（每项含 from=来自哪个节点、files=绝对路径列表），按需读取以获取上游成果。\n"
-        f"   若判定本任务为**永久性失败**（如注入/参数非法/前置缺失、重试也不会好），"
-        f"请在 outbox 里加 retryable=false，框架将跳过无谓重试。\n"
-        f"若**确实需要人来拍板**才能继续（如遇到未决的 [blocking] 决定、必须由人确认的高风险动作），"
-        f"可在终端打印一行 `{pane_scan.AWAIT_SENTINEL} <你的问题>` 然后停下等待——协调者会识别为「等人介入」"
-        f"（而非挂死），把问题转给人；拿到答复后你会在同一会话里收到回复，据此继续并最终写 outbox。"
-        f"不要为无关紧要的小选择滥用它——能按角色合理默认就默认，别动辄挂起。\n"
-        f"写完 outbox 即视为交付。"
+    protocol = Template(_PROTOCOL.read_text(encoding="utf-8")).substitute(
+        inbox=inbox, outbox=outbox, persona=persona, cwd=cwd, artifacts_dir=art,
+        task_notes=retry_note + reject_history_note + reject_cap_note,
+        await_sentinel=pane_scan.AWAIT_SENTINEL,
     )
+    return f"你是 team 的 {m.role or m.name}。{skills}\n" + protocol.rstrip("\n")

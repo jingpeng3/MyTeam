@@ -19,4 +19,4 @@
   - **拿不准一律按协调者模式加载**：宁可多读一次 routing，别让真流程漏了编排。
 
 ## 代码（改框架时看）
-核心包 `agent_team/`：models / config / registry / signals / board / herdr / cli，调度入口 coordinator（职责拆在 pane_scan / ledger / bootstrap / dispatch / reclaim / monitor / interventions / reporting，见 coordinator.py 头注释）。改行为从对应模块入手，改完跑 `uv run --extra dev pytest` + `uv run --extra dev ruff check`，再用 `--dry-run` 跑通后接真实 herdr。
+核心包 `agent_team/`：models / config / registry / signals / board / herdr / cli，调度入口 coordinator（职责拆在 pane_scan / ledger / bootstrap / dispatch / reclaim / monitor / interventions / reporting / watch，见 coordinator.py 头注释）。改行为从对应模块入手，改完跑 `uv run --extra dev pytest` + `uv run --extra dev ruff check`，再用 `--dry-run` 跑通后接真实 herdr。

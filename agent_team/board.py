@@ -1,8 +1,10 @@
 """任务板 + DAG：状态在文件、不在内存，支持协调者会话被压缩后恢复。"""
 from __future__ import annotations
 
+import contextlib
 import logging
 import time
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +13,44 @@ from .models import (Task, PENDING, READY, DISPATCHED, DONE, FAILED, SKIPPED, BY
                      AWAITING_EXPANSION, TERMINAL, INFLIGHT, FAILURE, SATISFIED)
 
 log = logging.getLogger(__name__)
+
+
+# 本进程已持有的 Job 驱动锁 → 重入计数（tick 内部再调 monitor 等嵌套持锁不自锁死）
+_HELD_JOB_LOCKS: dict[str, int] = {}
+
+
+@contextlib.contextmanager
+def job_lock(paths: Paths, goal_id: str) -> Iterator[None]:
+    """同一 Job 的「载入 → 推进 → 落盘」整段互斥：跨进程独占、进程内可重入。
+
+    board.save 只锁写入那一下，挡不住「A 载入 → B 收割落盘 → A 拿旧态落盘」覆盖掉 B 的收割——
+    而收割已删了 outbox，被覆盖的任务会退回 dispatched、随后被判 ledger-lost 重派。后台 `watch`
+    与协调者的 tick/wait/skip/retask… 并发推进同一 Job 时，各方都在此锁内**重新载入**再改，消除丢更新。
+    锁文件在 state/locks/，与 board.save 的写锁分开，不会自锁死。"""
+    target = paths.state_dir / "locks" / goal_id
+    key = str(target)
+    if key in _HELD_JOB_LOCKS:
+        _HELD_JOB_LOCKS[key] += 1
+        try:
+            yield
+        finally:
+            _HELD_JOB_LOCKS[key] -= 1
+        return
+    with file_lock(target):
+        _HELD_JOB_LOCKS[key] = 1
+        try:
+            yield
+        finally:
+            del _HELD_JOB_LOCKS[key]
+
+
+@contextlib.contextmanager
+def jobs_locked(paths: Paths, goal_ids: Iterable[str]) -> Iterator[None]:
+    """一次锁多个 Job：按 goal_id 排序加锁，多锁方之间不会互相死锁。"""
+    with contextlib.ExitStack() as stack:
+        for gid in sorted(set(goal_ids)):
+            stack.enter_context(job_lock(paths, gid))
+        yield
 
 
 class DagError(ValueError):
@@ -30,6 +70,9 @@ class Board:
         # 被打回/重置重新打开时清空（见 _stamp_completion）。
         self.created_at: float | None = time.time()
         self.completed_at: float | None = None
+        # 流程级复盘开关：来自 plan 顶层 `retro`（默认 False，历史 board 无此字段同为 False）。
+        # 需与 team.yaml 的 retro.enabled 同时打开，该 Job 收敛后才自动复盘（见 retro.sweep）。
+        self.retro: bool = False
 
     @property
     def version(self) -> int:
@@ -45,6 +88,7 @@ class Board:
             "updated": time.time(),
             "created_at": self.created_at,
             "completed_at": self.completed_at,
+            "retro": self.retro,
             "tasks": [t.to_dict() for t in self.tasks.values()],
         }
 
@@ -55,6 +99,7 @@ class Board:
         b._version = int(d.get("version", 0))
         b.created_at = d.get("created_at")
         b.completed_at = d.get("completed_at")
+        b.retro = bool(d.get("retro", False))
         return b
 
     def _stamp_completion(self) -> None:
@@ -87,6 +132,15 @@ class Board:
             self._version = max(on_disk, self._version) + 1
             atomic_write_json(f, self.to_dict())
         return f
+
+    def sync(self, paths: Paths) -> None:
+        """磁盘版本与本对象不同（别的驱动者已推进）则就地换成磁盘态。须在 job_lock 内调用，
+        让调用方手里的 board 引用在锁内是最新的，再推进就不会覆盖别人的改动。"""
+        fresh = Board.load(paths, self.goal_id)
+        if fresh is None or fresh.version == self._version:
+            return
+        self.goal, self.tasks, self._version = fresh.goal, fresh.tasks, fresh._version
+        self.created_at, self.completed_at, self.retro = fresh.created_at, fresh.completed_at, fresh.retro
 
     @classmethod
     def load(cls, paths: Paths, goal_id: str) -> Board | None:

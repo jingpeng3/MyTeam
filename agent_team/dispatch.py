@@ -253,7 +253,8 @@ def dispatch_task(paths: Paths, board: Board, task: Task,
                         "pane_id": DRY_PANE, "dispatched_at": now}
             ledger.save(paths, rt)
         task.status = DISPATCHED
-        task.open_run(m.name, now)       # dry-run 也开记录，让 report/看板的计时链路可预览
+        # dry-run 也开记录，让 report/看板的计时链路可预览；打标让复盘 sweep 认出「没真跑过」的 Job
+        task.open_run(m.name, now)["dry_run"] = True
         board.save(paths)
         ledger.log_event(paths, "dispatched", goal_id=gid, task_id=task.task_id,
                    agent=m.name, attempt=task.attempts, dry_run=True)
@@ -282,12 +283,13 @@ def _active_by_job_group(boards: list[Board]) -> dict[tuple[str, str], int]:
     return {(b.goal_id, g): n for b in boards for g, n in b.active_by_group().items()}
 
 
-def run_dispatch_round(paths: Paths, boards: list[Board],
-                        dry_run: bool) -> dict[str, dict[str, list[str]]]:
+def run_dispatch_round(paths: Paths, boards: list[Board], dry_run: bool,
+                        hold: dict[str, set[str]] | None = None) -> dict[str, dict[str, list[str]]]:
     """一轮跨给定 boards 的分派：选人(容量感知+公平) → **并发** provisioning → 主线程串行提交。
 
     返回 {goal_id: {"dispatched":[...], "waiting_for_agent":[...], "waiting_for_capacity":[...],
-    "dispatch_errors":[...]}}。
+    "dispatch_errors":[...], "held":[...]}}。
+    hold：{goal_id: {task_id}}，本轮不派、留 READY 进 held（见 coordinator.tick 的 hold_new_ready）。
     并发化 provisioning 是 round-4 头号共识修复：herdr 拉起是各自独立的阻塞 subprocess，串行会把
     一轮分派拉成 N×~12s 并冻结所有在途 worker 的监控/超时判定；这里把拉起并发、状态提交仍串行。
     """
@@ -296,13 +298,17 @@ def run_dispatch_round(paths: Paths, boards: list[Board],
     group_active = _active_by_job_group(boards)          # fan-out 组级并发闸：本轮开始前各组在途数
     group_reserved: dict[tuple[str, str], int] = {}
     agents_cache = registry.list_agents(paths)     # 本轮只加载一次全部 manifest（避免逐节点重读）
+    hold = hold or {}
     out = {b.goal_id: {"dispatched": [], "waiting_for_agent": [],
-                       "waiting_for_capacity": [], "dispatch_errors": []}
+                       "waiting_for_capacity": [], "dispatch_errors": [], "held": []}
            for b in boards}
     selection: list[tuple[Board, Task, AgentManifest]] = []
     # 跨 Job 公平：在途任务最少（最饿）的 Job 先挑稀缺容量，避免字典序靠后的 Job 被持续压后。
     for b in sorted(boards, key=lambda b: (len(b.dispatched_tasks()), b.goal_id)):
         for t in b.ready_tasks():
+            if t.task_id in hold.get(b.goal_id, ()):
+                out[b.goal_id]["held"].append(t.task_id)
+                continue
             # fan-out 组级并发闸：同组在途+本轮预占已达上限 → 留 READY 等容量（不占 agent 选择）。
             gkey = (b.goal_id, t.fanout_group) if t.fanout_group else None
             if gkey and t.fanout_max_parallel:

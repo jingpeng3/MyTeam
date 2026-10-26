@@ -1,0 +1,18 @@
+name: flow-retro
+role: 流程复盘：Job 收敛后只读分析执行过程，给出本流程与整个项目的优化建议
+description: 开了复盘的 Job 收敛后由框架自动派发（复盘 Job retro-<goal_id>-<时刻>），产出 suggestions.json 进建议待办池
+prompt: prompt.md
+runtime:
+  cli: claude
+  kind: claude
+  model: ''
+  flags: []
+workspace:
+  path: ./workspace
+  worktree_base: ''
+capabilities:
+- flow-retro
+skills: []
+hidden_skills: []
+lifecycle: on-demand
+max_concurrent: 2

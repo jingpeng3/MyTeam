@@ -19,6 +19,8 @@ dist/
 # Runtime state written by the coordinator (keep dir skeletons via .gitkeep)
 coordinator/state/jobs/
 coordinator/state/*.json
+coordinator/state/locks/
+coordinator/state/watch.log
 shared/artifacts/*
 !shared/artifacts/.gitkeep
 shared/bus/*
@@ -28,6 +30,12 @@ run.log
 # Per-instance plan 填槽值文件（--vars-file 的一次性参数，非模板）；保留目录骨架
 coordinator/plans/vars/*
 !coordinator/plans/vars/.gitkeep
+
+# 本地自用的业务 agent 与其流程模板：只在本机跑，不随框架仓库分发
+agents/ai-news/
+agents/stock-news/
+agents/html-digest/
+coordinator/plans/baidu-news-digest.json
 
 # Per-agent runtime signal/log dirs (auto-created on demand by the coordinator/worker)
 agents/*/inbox/

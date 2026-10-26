@@ -39,3 +39,16 @@ def test_read_tail_swallows_errors(monkeypatch):
         raise pane_scan.herdr.HerdrError("gone")
     monkeypatch.setattr(pane_scan.herdr, "read_agent", boom)
     assert pane_scan.read_tail("h1") == "" and pane_scan.read_tail("") == ""
+
+
+def test_read_agent_live_skips_scrollback(monkeypatch):
+    calls = []
+
+    def run(args, timeout=60, session=None):
+        calls.append(args[args.index("--source") + 1])
+        return {"_raw": "x"}
+    monkeypatch.setattr(pane_scan.herdr, "_run", run)
+    assert pane_scan.herdr.read_agent("h", live=True) == "x" and calls == ["visible"]
+    calls.clear()
+    pane_scan.herdr.read_agent("h")
+    assert calls == ["recent-unwrapped"]

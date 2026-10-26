@@ -54,6 +54,8 @@ agent 会先澄清需求、规划 DAG、创建 agent 并 dry-run，确认后再�
 | 📦 | **产物共享与按需继承** | 跨任务产物按 Job 集中存放；下游显式声明 `see_artifacts`，框架自动把上游文件递给它。 |
 | 🛡 | **重试 · 跳过 · 打回** | 失败自动重试；无需执行的步骤可绕过；评审不合格可打回上游连同后代重跑，并注入历史意见。 |
 | 💬 | **人机协作** | worker 遇到需要拍板的点会停下来提问，协调者把答复回注后它继续执行。 |
+| 🔁 | **事件驱动等待** | `wait` 每 3s 收割一次，任一在途任务交付/失败/打回/等人就立即返回；后台 `watch` 在协调者离开时继续收割、判超时、回收 pane。 |
+| 🧠 | **流程自动复盘** | 可选开关：Job 收敛后自动拉一个复盘 Job 分析执行过程，建议沉淀进 `coordinator/insights/backlog.json`，由 `team-evolve` 挑选落地。 |
 | 📊 | **实时看板** | 本机可视化各 Job 的 DAG、节点状态、产物、打回记录、Agent 负载与流程模板。 |
 
 ## 工作原理
@@ -75,7 +77,7 @@ flowchart LR
 | **编排** | `team-build` / `team plan` | 把目标拆成 DAG，节点声明 `needs`（依赖）与 `capabilities`（能力）。 |
 | **派发** | `team tick` | 所有依赖已满足的 ready 节点按能力并发派给 worker。 |
 | **执行** | worker | 每个任务在自己的独占 cwd 里执行，产物写入 Job 的 artifacts 目录。 |
-| **收敛** | `team monitor` | 只认 worker 写回的 outbox 信号，回收 pane、解锁下游、按需重试或打回。 |
+| **收敛** | `team wait` | 只认 worker 写回的 outbox 信号，回收 pane、解锁下游、按需重试或打回；在途任务一有变化立即返回。 |
 | **交付** | `team report` | 汇总每个任务的摘要、耗时与产物路径。 |
 
 协调者不去猜 worker 终端里输出了什么——**一切以落盘的信号为准**，所以进程中断后也能从文件状态恢复。
@@ -128,8 +130,10 @@ scripts/install.sh --uninstall
 |---|---|---|
 | 编排 | `agent` | 创建 / 查看 / 移除 agent |
 | 编排 | `plan` | 载入一个 DAG 为 Job；支持 `{{槽}}` 模板与 `--as` 多实例 |
-| 调度 | `tick` | 调度一轮，派发所有 ready 节点 |
+| 调度 | `tick` | 调度一轮，派发所有 ready 节点；本轮刚解锁的下游默认 `held`，留给你先 retask/skip |
+| 调度 | `wait` | 阻塞到在途任务有变化（交付/失败/等人）立即返回，只收割不分派；逐轮驱动用它代替 sleep+monitor |
 | 调度 | `monitor` | 扫描 outbox，收敛完成、解锁下游、处理重试 |
+| 调度 | `watch` | 后台收割守护（tick 自动拉起）：协调者不在场时也收割 outbox、判超时、回收 pane，从不分派 |
 | 调度 | `run` | 自动循环 tick + monitor 直到完成或卡死 |
 | 干预 | `skip` | 主动绕过无需执行的步骤，下游照常进行 |
 | 干预 | `retask` | 根据上游结果改写尚未派发的下游 goal |
@@ -138,19 +142,22 @@ scripts/install.sh --uninstall
 | 干预 | `expand` | 把 fan-out 模板节点动态展开成 K 个并行子任务 |
 | 查看 | `jobs` / `status` / `report` | 列出 Job、查看 Job 明细、输出终报 |
 | 查看 | `dashboard` | 启动本机实时看板（默认 `127.0.0.1:8787`，无鉴权） |
+| 复盘 | `retro` | `status` / `on` / `off` 管复盘开关；`run <goal_id>` 手动为已收敛 Job 建复盘 Job |
+| 复盘 | `insights` | 查看 / 标记复盘沉淀的优化建议（`list` / `show` / `mark`） |
 | 管理 | `job` | 移除 Job（默认保留产物） |
 
 调度命令都支持 `--dry-run`：只写信号、不真正拉起 worker，适合验证编排。
 
 ## 与 Agent 对话
 
-`.claude/skills/` 下内置三个 skill，覆盖从搭团队到跑完的完整闭环：
+`.claude/skills/` 下内置四个 skill，覆盖从搭团队到跑完再到自我增强的完整闭环：
 
 | Skill | 触发方式 | 职责 |
 |---|---|---|
 | `team-build` | 「建个团队 / 帮我编排 XX」 | 澄清目标 → 建 agent → 写 plan → dry-run 验证 |
 | `agent-create` | 「建个 / 加个 agent」 | 对话式新建单个 agent 并登记进团队 |
-| `team-run` | 「跑起来 / 继续跑 / 让团队干活」 | 逐轮 tick + monitor 驱动到完成并汇报 |
+| `team-run` | 「跑起来 / 继续跑 / 让团队干活」 | 逐轮 tick + wait 驱动到完成并汇报 |
+| `team-evolve` | 「优化一下项目 / 看看复盘建议」 | 从复盘建议池挑选高价值建议，核实后落地并标记采纳 |
 
 ## Plan 模板
 
@@ -179,6 +186,8 @@ uv run team plan coordinator/plans/baidu-news-digest.json \
 漏填槽位、悬空依赖、成环、非法的 `see_artifacts` / `reject_to` 都会在载入期直接拦下，不会把半成品发给 worker。
 
 ## worker 完成协议
+
+通用交付协议（读 inbox、写 outbox、产物目录、等人介入）集中在 `agent_team/worker_protocol.md`，由框架在派发时注入引导语——agent 的 `prompt.md` 只写本角色怎么干活，不再各自抄一份。
 
 worker 读取 `inbox/<goal_id>__<task_id>.json`，完成后把结构化结果写回 `outbox/<goal_id>__<task_id>.json`：
 

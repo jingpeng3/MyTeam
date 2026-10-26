@@ -36,12 +36,13 @@ _RETRY_FAIL_CONTEXT = re.compile(
     re.IGNORECASE)
 
 
-def read_tail(herdr_name: str, lines: int = PANE_SCAN_LINES) -> str:
-    """读 worker pane 最近 lines 行；无名/读失败返回空串（扫描判定一律按「无信号」处理）。"""
+def read_tail(herdr_name: str, lines: int = PANE_SCAN_LINES, live: bool = False) -> str:
+    """读 worker pane 最近 lines 行；无名/读失败返回空串（扫描判定一律按「无信号」处理）。
+    live=True 表示已知 agent 在 working，直接读可见屏（见 herdr.read_agent）。"""
     if not herdr_name:
         return ""
     try:
-        return herdr.read_agent(herdr_name, lines=lines) or ""
+        return herdr.read_agent(herdr_name, lines=lines, live=live) or ""
     except herdr.HerdrError:
         return ""
 

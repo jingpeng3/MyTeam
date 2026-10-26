@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import functools
 import json
 import logging
 import os
@@ -12,9 +13,9 @@ import sys
 from pathlib import Path
 from typing import NoReturn
 
-from . import coordinator, registry
-from .board import Board, DagError
-from .config import Paths, load_manifest
+from . import coordinator, registry, retro
+from .board import Board, DagError, job_lock
+from .config import Paths, load_manifest, read_json_or
 from .models import Task, PLACEHOLDER_RE, UNFILLED_SLOT_RE
 
 
@@ -95,6 +96,21 @@ def cmd_agent_remove(a) -> int:
 
 
 # ---------------- 协调调度（多 Job） ----------------
+def _locks_job(attr: str):
+    """CLI 介入命令（skip/retask/answer/reject/expand/job remove…）整段持该 Job 的驱动锁：
+    「载入 → 改 → 落盘」期间后台 watch / 别的驱动者不会插进来收割，互不覆盖。"""
+    def deco(fn):
+        @functools.wraps(fn)
+        def wrapper(a) -> int:
+            gid = getattr(a, attr, "") or ""
+            if not gid:
+                return fn(a)
+            with job_lock(_paths(), gid):
+                return fn(a)
+        return wrapper
+    return deco
+
+
 def _require_board(p: Paths, goal_id: str) -> Board:
     b = Board.load(p, goal_id)
     if b is None:
@@ -246,14 +262,18 @@ def cmd_plan(a) -> int:
         tasks = [_task_from_raw(t, i) for i, t in enumerate(raw)]
     except ValueError as e:              # __post_init__ 校验：非法状态/负数配置
         _die(f"plan 非法：{e}")
+    if not isinstance(data.get("retro", False), bool):
+        _die(f"plan 非法：顶层 retro 只能是 true/false（流程级复盘开关），得到 {data['retro']!r}")
     board = Board(gid, data.get("goal", ""), tasks)
+    board.retro = data.get("retro", False)   # 流程级复盘开关随模板走；还需 team.yaml retro.enabled 才生效
     try:
         board.validate()                 # 悬空依赖 / 成环，载入期即报错
     except DagError as e:
         _die(f"plan 非法：{e}")
-    _purge_goal_signals(p, gid)          # 清掉同名 Job 的陈旧信号+在途 pane，避免"假完成"/孤儿
-    board.refresh_ready()
-    board.save(p)
+    with job_lock(p, gid):               # 替换同名 Job 时别和后台 watch 的收割交错
+        _purge_goal_signals(p, gid)      # 清掉同名 Job 的陈旧信号+在途 pane，避免"假完成"/孤儿
+        board.refresh_ready()
+        board.save(p)
     # 无 capabilities 的任务会被「谁都能干」路由到负载最空的**任意** agent（可能是不相干的生产 agent）。
     # 非致命但易误路由——载入期给一条告警，让协调者显式确认或补 capabilities。
     nocap = [t.task_id for t in tasks if not t.capabilities]
@@ -291,7 +311,7 @@ def _purge_goal_signals(p: Paths, goal_id: str) -> None:
 def cmd_jobs(a) -> int:
     p = _paths()
     _print([{"goal_id": b.goal_id, "goal": b.goal, "summary": b.summary(),
-             "complete": b.is_complete()} for b in Board.load_all(p)])
+             "complete": b.is_complete(), "retro": b.retro} for b in Board.load_all(p)])
     return 0
 
 
@@ -325,34 +345,53 @@ def _warn_all_jobs_scope(p: Paths, dry_run: bool) -> None:
 
 def cmd_tick(a) -> int:
     p = _paths()
+    hold = not a.no_hold        # 交互 tick 默认 hold：本轮收割才解锁的下游留给协调者先审再派
     if a.job:
-        res = coordinator.tick(p, _require_board(p, a.job), dry_run=a.dry_run)
+        res = coordinator.tick(p, _require_board(p, a.job), dry_run=a.dry_run, hold_new_ready=hold)
     else:
         _warn_all_jobs_scope(p, a.dry_run)
-        res = coordinator.tick_all(p, dry_run=a.dry_run)
+        res = coordinator.tick_all(p, dry_run=a.dry_run, hold_new_ready=hold)
     _print(res)
     return 0
 
 
-def _monitor_view(p: Paths, b: Board, dry_run: bool) -> dict:
-    """对单个 Job 跑一次 monitor，返回给协调者看的结果视图。"""
-    changed = coordinator.monitor_once(p, b, close_panes=not dry_run)
-    return {"changed": changed, "complete": b.is_complete(),
-            "has_failures": b.has_failures(), "stuck": coordinator.is_stuck(b, p),
-            "awaiting": coordinator.awaiting_tasks(p, b),
-            "retried": coordinator.retrying_tasks(p, b),
-            "artifact_warnings": coordinator.artifact_warnings(p, b),
-            "summary": b.summary()}
+def _monitor_view(p: Paths, goal_id: str, dry_run: bool) -> dict:
+    """对单个 Job 跑一次 monitor（锁内重新载入，不和后台 watch 互相覆盖），返回给协调者看的结果视图。"""
+    with job_lock(p, goal_id):
+        b = _require_board(p, goal_id)
+        changed = coordinator.monitor_once(p, b, close_panes=not dry_run)
+        return {"changed": changed, **coordinator.job_view(p, b)}
+
+
+def cmd_watch(a) -> int:
+    from . import watch
+    _print(watch.run(_paths(), poll=a.poll, idle_exit=a.idle_exit))
+    return 0
+
+
+def cmd_wait(a) -> int:
+    p = _paths()
+    if a.job:
+        _require_board(p, a.job)
+    _print(coordinator.wait_for_change(p, goal_id=a.job or None, timeout=a.timeout,
+                                       poll=a.poll, since=a.since))
+    return 0
 
 
 def cmd_monitor(a) -> int:
     p = _paths()
     if a.job:
-        _print(_monitor_view(p, _require_board(p, a.job), a.dry_run))
+        out = _monitor_view(p, a.job, a.dry_run)
     else:
         _warn_all_jobs_scope(p, a.dry_run)
-        _print({b.goal_id: _monitor_view(p, b, a.dry_run)
-                for b in Board.load_all(p) if not b.is_complete()})
+        out = {b.goal_id: _monitor_view(p, b.goal_id, a.dry_run)
+               for b in Board.load_all(p) if not b.is_complete()}
+    # Job 多在 monitor 收 outbox 时收敛：同一次调用就把复盘 Job 建好、把已出的建议收进待办池。
+    # 只建不派——驱动方看到 retro_spawned 后 `tick --job <复盘id>` 派出并接着 monitor 到收敛。
+    rr = coordinator.retro_round(p, a.dry_run)
+    if rr["retro_spawned"] or rr["insights_new"]:
+        out["retro"] = rr
+    _print(out)
     return 0
 
 
@@ -428,6 +467,120 @@ def cmd_report(a) -> int:
     return 0
 
 
+def _plan_file(p: Paths, ref: str) -> Path:
+    """plan 引用 → 文件：可给路径，也可给 coordinator/plans/ 下的模板名（省略 .json）。"""
+    f = Path(ref)
+    if not f.is_file():
+        f = p.plans_dir / (ref if ref.endswith(".json") else f"{ref}.json")
+    if not f.is_file():
+        _die(f"未找到 plan：{ref}")
+    return f
+
+
+def _retro_view(p: Paths) -> dict:
+    plans = {}
+    for f in sorted(p.plans_dir.glob("*.json")):
+        data = read_json_or(f, {})
+        if isinstance(data, dict) and isinstance(data.get("tasks"), list):
+            plans[f.stem] = data.get("retro") is True
+    return {"enabled": retro.globally_enabled(p), "has_retro_agent": retro.has_retro_agent(p),
+            "plans": plans,
+            "jobs": {b.goal_id: b.retro for b in Board.load_all(p) if not retro.is_retro(b.goal_id)}}
+
+
+def cmd_retro_status(a) -> int:
+    _print(_retro_view(_paths()))
+    return 0
+
+
+@_locks_job("job")
+def cmd_retro_toggle(a) -> int:
+    """on/off：不带目标=全局总闸；带 plan=模板的流程开关（之后载入的 Job 生效）；--job=已有 Job 的开关。"""
+    p = _paths()
+    on = a.retro_cmd == "on"
+    if a.job:
+        b = _require_board(p, a.job)
+        if retro.is_retro(b.goal_id):
+            _die(f"{b.goal_id} 是复盘 Job，不能再开复盘")
+        b.retro = on
+        b.save(p)
+        what = f"Job {b.goal_id}" + ("（已收敛：下一次 tick/monitor 即补建复盘）" if on and b.is_complete() else "")
+    elif a.plan:
+        f = _plan_file(p, a.plan)
+        retro.set_plan_flag(f, on)
+        what = f"流程模板 {f.stem}（之后 `plan` 载入的 Job 生效；已载入的 Job 用 --job 改）"
+    else:
+        retro.set_global(p, on)
+        what = "全局总闸 team.yaml retro.enabled"
+    print(f"retro {'on' if on else 'off'}: {what}")
+    v = _retro_view(p)
+    if on and not v["enabled"]:
+        print("note: 全局总闸未开（`team retro on`），流程开关暂不生效", file=sys.stderr)
+    if on and not v["has_retro_agent"]:
+        print(f"note: 没有声明 {retro.RETRO_CAP} 能力的 agent，复盘无人可派", file=sys.stderr)
+    return 0
+
+
+def cmd_retro_run(a) -> int:
+    """手动为一个已收敛 Job 建复盘 Job（不受两级开关约束，但仍要有 flow-retro agent）。"""
+    p = _paths()
+    b = _require_board(p, a.goal_id)
+    if retro.is_retro(b.goal_id):
+        _die(f"{b.goal_id} 本身是复盘 Job，不再复盘")
+    if not b.is_complete():
+        _die(f"Job {b.goal_id} 尚未收敛（{b.summary()}），收敛后再复盘")
+    if not retro.has_retro_agent(p):
+        _die(f"没有声明 {retro.RETRO_CAP} 能力的 agent，复盘 Job 无人可派——先建/登记 flow-retro agent")
+    rgid = retro.spawn(p, b, reason="manual")
+    retro.record_manual(p, b, rgid)
+    print(f"created retro job {rgid}——`team tick --job {rgid}` 派出，收敛后 `team insights list` 查看建议")
+    return 0
+
+
+def _insight_line(it: dict) -> str:
+    rec = f" ×{it['occurrences']}" if it["occurrences"] > 1 else ""
+    return (f"[{it['id']}] {it['score']:>4}  {it['scope']}/{it['category']}  "
+            f"{it['impact']}影响/{it['effort']}改动{rec}  {it['title']}  → {it['target'] or '—'}")
+
+
+def cmd_insights_list(a) -> int:
+    p = _paths()
+    ing = retro.ingest(p)                 # 先把已完成复盘的新建议收进池，看到的永远是最新
+    items = retro.ranked(p, status=None if a.status == "all" else a.status,
+                         scope=a.scope or None, top=a.top or None)
+    if a.json:
+        _print({"ingested": ing, "items": items})
+        return 0
+    if ing["sources"]:
+        print(f"（新收入 {len(ing['sources'])} 份复盘：新增 {ing['new']} 条、复现 {ing['recurred']} 条、"
+              f"重开 {ing['reopened']} 条）")
+    for f in ing["malformed"]:
+        print(f"warning: 复盘产物格式不对，已跳过：{f}", file=sys.stderr)
+    print("\n".join(_insight_line(it) for it in items) or "（建议池为空）")
+    return 0
+
+
+def cmd_insights_show(a) -> int:
+    p = _paths()
+    retro.ingest(p)
+    hit = [it for it in retro.ranked(p, status=None) if it["id"] in a.ids]
+    if not hit:
+        _die(f"未找到建议 {a.ids}")
+    _print(hit)
+    return 0
+
+
+def cmd_insights_mark(a) -> int:
+    missing = retro.mark(_paths(), a.ids, a.status, note=a.note or "")
+    if missing:
+        print(f"未找到建议 {missing}", file=sys.stderr)
+    done = [i for i in a.ids if i not in missing]
+    if done:
+        print(f"marked {a.status}: {', '.join(done)}")
+    return 0 if done else 1
+
+
+@_locks_job("goal_id")
 def cmd_skip(a) -> int:
     p = _paths()
     b = _require_board(p, a.goal_id)
@@ -436,6 +589,7 @@ def cmd_skip(a) -> int:
     return 0 if res.get("bypassed") else 1   # 一个都没跳成(全 not_found/终态)时非零退出，与 retask/reject 一致
 
 
+@_locks_job("goal_id")
 def cmd_retask(a) -> int:
     p = _paths()
     b = _require_board(p, a.goal_id)
@@ -448,6 +602,7 @@ def cmd_retask(a) -> int:
     return 0 if res.get("retasked") else 1
 
 
+@_locks_job("goal_id")
 def cmd_answer(a) -> int:
     p = _paths()
     b = _require_board(p, a.goal_id)
@@ -456,6 +611,7 @@ def cmd_answer(a) -> int:
     return 0 if res.get("ok") else 1
 
 
+@_locks_job("goal_id")
 def cmd_reject(a) -> int:
     p = _paths()
     b = _require_board(p, a.goal_id)
@@ -476,6 +632,7 @@ def cmd_reject(a) -> int:
     return 0 if (res.get("applied") or res.get("escalated")) else 1
 
 
+@_locks_job("goal_id")
 def cmd_expand(a) -> int:
     p = _paths()
     b = _require_board(p, a.goal_id)
@@ -536,6 +693,7 @@ def cmd_dashboard(a) -> int:
     return 0
 
 
+@_locks_job("goal_id")
 def cmd_job_remove(a) -> int:
     p = _paths()
     b = _require_board(p, a.goal_id)
@@ -616,9 +774,25 @@ def build_parser() -> argparse.ArgumentParser:
     st.add_argument("goal_id", nargs="?")
     st.set_defaults(func=cmd_status)
     tk = sub.add_parser("tick", help="调度一轮(默认跨所有活跃 Job)")
+    tk.add_argument("--no-hold", action="store_true", dest="no_hold",
+                    help="本轮收割才解锁的下游也当场派出（默认留进 held，等协调者读完上游摘要再 tick）")
     _add_job_flags(tk).set_defaults(func=cmd_tick)
     mo = sub.add_parser("monitor", help="监控 outbox 一次(默认所有活跃 Job)")
     _add_job_flags(mo).set_defaults(func=cmd_monitor)
+    wt = sub.add_parser("wait", help="阻塞到在途任务有状态变化或超时(只收割不分派)，逐轮驱动用它替代 sleep+monitor")
+    wt.add_argument("--job", default="", help="限定单个 Job(goal_id)；省略则跨所有活跃 Job")
+    wt.add_argument("--timeout", type=float, default=coordinator.WAIT_TIMEOUT,
+                    help="最长阻塞秒数(默认 %(default)s，留在 shell 120s 超时内)")
+    wt.add_argument("--poll", type=float, default=coordinator.WAIT_POLL, help="收割间隔秒数")
+    wt.add_argument("--since", type=int, default=None,
+                    help="事件游标(上次 wait 返回的 cursor)：返回此后的事件")
+    wt.set_defaults(func=cmd_wait)
+    wa = sub.add_parser("watch", help="前台跑后台收割守护（tick 有真实分派时会自动脱离会话拉起；"
+                                      "只收割/判超时/回收、从不分派；无在途任务一段时间后自行退出）")
+    wa.add_argument("--poll", type=float, default=5.0, help="收割间隔秒数")
+    wa.add_argument("--idle-exit", type=float, default=300.0, dest="idle_exit",
+                    help="连续多少秒无在途任务即退出")
+    wa.set_defaults(func=cmd_watch)
     rn = sub.add_parser("run", help="自动循环调度活跃 Job 直到完成/卡死(默认全部，--job 限定单个)")
     rn.add_argument("--interval", type=float, default=3.0)
     rn.add_argument("--max-ticks", type=int, default=200, dest="max_ticks")
@@ -686,6 +860,33 @@ def build_parser() -> argparse.ArgumentParser:
     db.add_argument("--host", default="127.0.0.1",
                     help="默认 127.0.0.1；无鉴权面板，勿绑 0.0.0.0 暴露到网络")
     db.set_defaults(func=cmd_dashboard)
+    rv = sub.add_parser("retro", help="流程复盘开关（全局总闸 + 流程开关，都开才自动复盘）与手动复盘"
+                        ).add_subparsers(dest="retro_cmd", required=True)
+    rv.add_parser("status", help="看全局总闸、各模板与各 Job 的复盘开关").set_defaults(func=cmd_retro_status)
+    for name, verb in (("on", "打开"), ("off", "关闭")):
+        rt_ = rv.add_parser(name, help=f"{verb}开关：不带参数=全局总闸；带 plan=该流程模板；--job=已载入的 Job")
+        rt_.add_argument("plan", nargs="?", default="", help="plan 文件路径或 coordinator/plans/ 下的模板名")
+        rt_.add_argument("--job", default="", help="改已载入 Job 的开关（含历史 Job）")
+        rt_.set_defaults(func=cmd_retro_toggle)
+    rr = rv.add_parser("run", help="手动为一个已收敛 Job 建复盘 Job（不受开关约束）")
+    rr.add_argument("goal_id")
+    rr.set_defaults(func=cmd_retro_run)
+    ins = sub.add_parser("insights", help="复盘建议待办池：查看/标记（team-evolve skill 据此挑建议优化项目）"
+                         ).add_subparsers(dest="isub", required=True)
+    il = ins.add_parser("list", help="按得分降序列出建议（先收入已完成复盘的新建议）")
+    il.add_argument("--status", default="open", choices=[*retro.STATUSES, "all"])
+    il.add_argument("--scope", default="", choices=["", "flow", "project"])
+    il.add_argument("--top", type=int, default=0, help="只列前 N 条；0=全部")
+    il.add_argument("--json", action="store_true", help="输出完整 JSON（含 problem/proposal/evidence）")
+    il.set_defaults(func=cmd_insights_list)
+    ish = ins.add_parser("show", help="看建议详情")
+    ish.add_argument("ids", nargs="+")
+    ish.set_defaults(func=cmd_insights_show)
+    im = ins.add_parser("mark", help="标记建议状态：applied=已落地 / dismissed=不采纳 / open=重开")
+    im.add_argument("status", choices=retro.STATUSES)
+    im.add_argument("ids", nargs="+")
+    im.add_argument("--note", default="", help="备注：落地了什么 / 为何不采纳")
+    im.set_defaults(func=cmd_insights_mark)
     jr = sub.add_parser("job", help="Job 管理").add_subparsers(dest="jsub", required=True)
     jrm = jr.add_parser("remove")
     jrm.add_argument("goal_id")

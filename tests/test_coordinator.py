@@ -39,7 +39,7 @@ class FakeHerdr:
     def agent_status(self, target):
         return self.status.get(target, "working")
 
-    def read_agent(self, target, lines=120, session=None):
+    def read_agent(self, target, lines=120, session=None, live=False):
         return self.text.get(target, "")
 
     def close_pane(self, pane_id):
@@ -354,3 +354,186 @@ def test_reconcile_reaps_orphans_but_protects_live_sessions(paths, fake):
     fake.status.update(hdead="gone", hlive="idle")
     assert coordinator.reconcile_ledger(paths) == 1
     assert fake.closed == ["p1"] and set(_rt(paths)) == {"g:live", "g:dry"}
+
+
+# ---------- hold_new_ready / wait ----------
+
+def _chain(paths, fake):
+    _agent(paths, "w1", maxc=5)
+    b = _board(paths, Task("up", "g", capabilities=["x"]), Task("down", "g", needs=["up"], capabilities=["x"]),
+               Task("side", "g", capabilities=["x"]))
+    coordinator.tick(paths, b)
+    return b
+
+
+def test_tick_hold_new_ready_defers_freshly_unlocked(paths, fake):
+    b = _chain(paths, fake)
+    _outbox(paths, "w1", "up", {"status": "done", "summary": "只做 A"})
+    res = coordinator.tick(paths, b, hold_new_ready=True)
+    assert res["changed"] == ["up"] and res["held"] == ["down"] and res["dispatched"] == []
+    assert b.tasks["down"].status == READY
+    coordinator.retask_task(paths, b, "down", append="只做 A")     # 未派发：不用 --force
+    res = coordinator.tick(paths, b, hold_new_ready=True)
+    assert res["dispatched"] == ["down"] and res["held"] == []
+    assert b.tasks["down"].goal == "g\n只做 A"
+
+
+def test_tick_without_hold_dispatches_same_round(paths, fake):
+    b = _chain(paths, fake)
+    _outbox(paths, "w1", "up", {"status": "done", "summary": "ok"})
+    res = coordinator.tick(paths, b)
+    assert res["dispatched"] == ["down"] and res["held"] == []
+
+
+def test_wait_returns_on_change_without_dispatching(paths, fake):
+    _chain(paths, fake)
+    _outbox(paths, "w1", "up", {"status": "done", "summary": "只做 A", "artifacts": []})
+    res = coordinator.wait_for_change(paths, goal_id="g", timeout=5, poll=0, since=0)
+    assert res["reason"] == "changed"
+    job = res["jobs"]["g"]
+    assert job["changed"] == [{"task_id": "up", "status": DONE, "summary": "只做 A",
+                               "artifacts": [], "error": None}]
+    assert job["ready"] == ["down"]
+    assert Board.load(paths, "g").tasks["down"].status == READY      # 只收割、不分派
+    kinds = [e["event"] for e in res["events"]]
+    assert "task_done" in kinds and "pane_closed" not in kinds
+    again = coordinator.wait_for_change(paths, goal_id="g", timeout=0, since=res["cursor"])
+    assert again["reason"] == "timeout" and again["events"] == []    # side 仍在跑、无新事件
+
+
+def test_wait_no_inflight_returns_immediately(paths, fake):
+    _agent(paths, "w1")
+    _board(paths, Task("t", "g", capabilities=["x"]))
+    res = coordinator.wait_for_change(paths, goal_id="g", timeout=60)
+    assert res["reason"] == "no_inflight" and res["jobs"]["g"]["summary"]
+
+
+def test_wait_reports_job_that_converged(paths, fake):
+    _agent(paths, "w1")
+    b = _board(paths, Task("t", "g", capabilities=["x"]))
+    coordinator.tick(paths, b)
+    _outbox(paths, "w1", "t", {"status": "done", "summary": "ok"})
+    res = coordinator.wait_for_change(paths, timeout=5, poll=0)     # 跨 Job：刚收敛的也要给判决位
+    assert res["reason"] == "changed" and res["jobs"]["g"]["complete"]
+
+
+def test_read_events_keeps_partial_line(paths):
+    from agent_team import ledger
+    ledger.log_event(paths, "a", goal_id="g")
+    with open(paths.state_dir / "run.log", "a") as f:
+        f.write('{"event": "half"')
+    evs, cur = ledger.read_events(paths, 0)
+    assert [e["event"] for e in evs] == ["a"]
+    with open(paths.state_dir / "run.log", "a") as f:
+        f.write(', "goal_id": "g"}\n')
+    evs, _ = ledger.read_events(paths, cur)
+    assert [e["event"] for e in evs] == ["half"]
+    assert ledger.read_events(paths, 10**9)[0] == []
+
+
+# ---------- 并发驱动：job_lock / watch ----------
+
+def test_tick_with_stale_board_does_not_undo_concurrent_harvest(paths, fake):
+    _agent(paths, "w1", maxc=5)
+    b = _board(paths, Task("t1", "g", capabilities=["x"]), Task("t2", "g", needs=["t1"], capabilities=["x"]))
+    coordinator.tick(paths, b)
+    stale = Board.load(paths, "g")                     # 协调者手里的旧态：t1 仍 dispatched
+    _outbox(paths, "w1", "t1", {"status": "done", "summary": "ok"})
+    assert coordinator.harvest_round(paths)["changed"] == {"g": ["t1"]}   # 后台 watch 先收割（outbox 已删）
+    res = coordinator.tick(paths, stale)               # 旧态进 tick：锁内先 sync，不会把 t1 当 ledger-lost
+    assert stale.tasks["t1"].status == DONE and res["dispatched"] == ["t2"]
+    log = (paths.state_dir / "run.log").read_text()
+    assert "ledger-lost" not in log and log.count('"task_done"') == 1
+
+
+def test_wait_reports_change_harvested_by_someone_else(paths, fake):
+    from agent_team import ledger
+    _chain(paths, fake)
+    cur = ledger.event_cursor(paths)
+    _outbox(paths, "w1", "up", {"status": "done", "summary": "A"})
+    coordinator.harvest_round(paths)                   # 别人（watch）收的
+    res = coordinator.wait_for_change(paths, goal_id="g", timeout=0, since=cur)
+    assert res["reason"] == "changed"
+    assert [c["task_id"] for c in res["jobs"]["g"]["changed"]] == ["up"]
+    assert res["jobs"]["g"]["ready"] == ["down"]
+
+
+def test_job_lock_is_reentrant(paths):
+    from agent_team.board import job_lock, jobs_locked
+    with job_lock(paths, "g"), jobs_locked(paths, ["g", "h"]), job_lock(paths, "h"):
+        pass
+    with job_lock(paths, "g"):                         # 退出后可再次获取
+        pass
+
+
+def test_cli_intervention_runs_under_lock(paths, fake, monkeypatch):
+    from agent_team import cli
+    _agent(paths, "w1")
+    _board(paths, Task("a", "g", capabilities=["x"]), Task("b", "g", needs=["a"]))
+    monkeypatch.setattr(cli, "_paths", lambda: paths)
+    assert cli.main(["skip", "g", "a"]) == 0
+    assert Board.load(paths, "g").tasks["a"].status == BYPASSED
+
+
+def test_watch_harvests_and_is_single_instance(paths, fake):
+    from agent_team import watch
+    _chain(paths, fake)
+    _outbox(paths, "w1", "up", {"status": "done", "summary": "ok"})
+    with watch._single_instance(paths) as got:
+        assert got and watch.is_running(paths)
+        assert watch.run(paths, poll=0, max_rounds=1) == {"status": "already_running"}
+    res = watch.run(paths, poll=0, max_rounds=1)
+    assert res["status"] == "max_rounds" and res["harvested"] == 1
+    b = Board.load(paths, "g")
+    assert b.tasks["up"].status == DONE and b.tasks["down"].status == READY   # 只收割、不分派
+    assert not watch.is_running(paths)
+
+
+def test_watch_exits_when_idle(paths, fake):
+    from agent_team import watch
+    _agent(paths, "w1")
+    _board(paths, Task("t", "g", capabilities=["x"]))   # 没有在途任务
+    assert watch.run(paths, poll=0, idle_exit=0)["status"] == "idle_exit"
+
+
+def test_ensure_running_respects_switches(paths, monkeypatch):
+    from agent_team import watch
+    spawned = []
+    class _Proc:
+        def wait(self):
+            return 0
+    monkeypatch.setattr(watch.subprocess, "Popen", lambda *a, **k: spawned.append(a) or _Proc())
+    assert not watch.ensure_running(paths)              # conftest 设了 TEAM_NO_WATCH
+    monkeypatch.delenv("TEAM_NO_WATCH")
+    (paths.root / "team.yaml").write_text("agents: []\nwatch: {enabled: false}\n")
+    assert not watch.ensure_running(paths)
+    (paths.root / "team.yaml").write_text("agents: []\n")
+    assert watch.ensure_running(paths) and len(spawned) == 1
+    with watch._single_instance(paths):
+        assert not watch.ensure_running(paths)         # 已有实例在跑就不重复拉起
+    assert len(spawned) == 1
+
+
+def test_escalated_parked_task_does_not_keep_watch_alive(paths, fake, clock):
+    from agent_team import ledger, watch
+    _agent(paths, "w1")
+    b = _board(paths, Task("t", "g", capabilities=["x"]))
+    coordinator.tick(paths, b)
+    b = Board.load(paths, "g")
+    b.tasks["t"].status = AWAITING_INPUT
+    b.save(paths)
+    rt = ledger.load(paths)
+    rt["g:t"]["escalated"] = True                      # 打回触顶 parked：pane 已回收、只等人裁决
+    ledger.save(paths, rt)
+    assert coordinator.harvest_round(paths)["inflight"] is False
+    assert watch.run(paths, poll=0, idle_exit=0)["status"] == "idle_exit"
+
+
+def test_watch_exits_on_persistent_errors_and_lifetime(paths, fake, monkeypatch):
+    from agent_team import watch
+    monkeypatch.setattr(coordinator, "harvest_round", lambda *a, **k: 1 / 0)
+    res = watch.run(paths, poll=0, max_rounds=100)
+    assert res["status"] == "error_exit" and res["rounds"] == watch.MAX_CONSECUTIVE_ERRORS
+    monkeypatch.setattr(coordinator, "harvest_round", lambda *a, **k: {"inflight": True, "changed": {}})
+    assert watch.run(paths, poll=0, max_rounds=100, max_lifetime=0)["status"] == "max_lifetime"
+    assert not watch.is_running(paths)                 # 退出即释放单实例锁

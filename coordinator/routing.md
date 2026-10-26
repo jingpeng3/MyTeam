@@ -24,7 +24,7 @@
 plan <模板文件> --show-vars          # 看该模板需要哪些槽
 # 按用户目标为各阶段现写 goal 值，写进 coordinator/plans/vars/<批次>.json
 plan <模板文件> --as <批次id> --vars-file coordinator/plans/vars/<批次>.json
-tick / monitor 逐轮驱动
+tick → wait 逐轮驱动
 ```
 
 **评估顺序**：多个模板可能都沾边时，优先选**更具体 / 覆盖面更窄**的那个（如目标只要求其中一个子产物时，选只产出该子产物的窄模板，而非覆盖多个产物的宽模板）。`not_when` 正是用来把宽模板从窄目标里排除的。

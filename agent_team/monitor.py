@@ -75,7 +75,7 @@ def _on_alive(paths: Paths, gid: str, task: Task, info: dict, hname: str,
     返回是否刚从等人恢复（恢复即重置存活时钟，调用方据此重算硬上限）。"""
     # herdr 报 working 不等于在推进：先扫致命/停滞信号（auth/密级/额度/重试耗尽），
     # 命中即终态失败、不重试——否则这类「活着的死循环」要等 45min 绝对上限才被杀。
-    fatal = pane_scan.fatal_reason(pane_scan.read_tail(hname))
+    fatal = pane_scan.fatal_reason(pane_scan.read_tail(hname, live=True))
     if fatal:
         v.fail_reason, v.terminal = f"fatal: {fatal}", True
         return False

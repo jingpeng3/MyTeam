@@ -65,6 +65,36 @@ def log_event(paths: Paths, event: str, **fields: Any) -> None:
         pass  # 日志是旁路，绝不因写日志失败影响调度
 
 
+def event_cursor(paths: Paths) -> int:
+    """run.log 当前末尾的字节偏移，作 read_events 的游标。"""
+    try:
+        return (paths.state_dir / "run.log").stat().st_size
+    except OSError:
+        return 0
+
+
+def read_events(paths: Paths, since: int) -> tuple[list[dict[str, Any]], int]:
+    """读 run.log 中游标 since 之后的完整事件行，返回 (事件列表, 新游标)。
+    游标越界（日志被换掉/截短）按当前末尾处理；末尾未写完的半行留给下次读。"""
+    f = paths.state_dir / "run.log"
+    try:
+        with open(f, "rb") as fh:
+            size = fh.seek(0, 2)
+            since = min(max(0, since), size)
+            fh.seek(since)
+            data = fh.read()
+    except OSError:
+        return [], since
+    end = data.rfind(b"\n") + 1
+    out: list[dict[str, Any]] = []
+    for line in data[:end].splitlines():
+        try:
+            out.append(json.loads(line))
+        except ValueError:
+            continue
+    return out, since + end
+
+
 def active_by_job_agent(paths: Paths) -> dict[tuple[str, str], int]:
     """当前每个 (Job, agent) 占用的 pane(dispatched 任务)数——**按 Job 独立计容量**。
 

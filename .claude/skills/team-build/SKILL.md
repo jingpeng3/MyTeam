@@ -41,7 +41,7 @@ description: 通过对话为 agent-team 框架创建 agent 与编排任务流程
 worker 是独立 CLI 会话，**启动在自己的 `agents/<name>/workspace/`、只读该目录、不向上找**。所以它要带的一切都得落在自己的 workspace / manifest 里。对每个角色，设计并落地这四样：
 
 - **能力标签 `capabilities`**（1–3 个，小写简短，如 `api` `ui` `test` `doc`）：任务匹配的唯一依据；plan 里任务的 `capabilities` 必须能被某 agent 命中，否则该任务进 `waiting_for_agent` 卡住。
-- **提示词 `agents/<name>/prompt.md`**：角色人格 + 工作习惯 + 完成协议（读 inbox→执行→写 outbox）。bootstrap 会显式让 worker 读它，是**保底**通道。
+- **提示词 `agents/<name>/prompt.md`**：角色人格 + 工作习惯 + 本角色的产出与 summary 要求。bootstrap 会显式让 worker 读它，是**保底**通道；读 inbox→执行→写 outbox 的通用完成协议由框架在引导语里统一下发（`agent_team/worker_protocol.md`），prompt.md 里不要重复。
 - **热记忆 `agents/<name>/workspace/CLAUDE.md`**：该 agent **每次启动都自动带上**的常驻上下文——领域知识、术语、项目规范里它必须守的部分、易踩坑。worker 只读自己 workspace，所以**共享规范也要内联进来**（别指望向上查找或 import 到项目根）。这份由你按角色现写。
 - **skills `agents/<name>/.claude/skills/<skill>/`**：该角色要用的专业技能，放**这个 agent 目录级 `.claude/skills/`**（与 `workspace/` 运行时数据分离）。worker cwd 在 `workspace/<goal_id>__<task_id>/`，靠向上查找发现祖先目录的 skill，故放 agent 目录一样启动即能看到描述、自动匹配或 `/name` 触发。
   - **本地优先**：先看已装 skill（`~/.claude/skills`、项目 `.claude/skills`）够不够；据此填节点表的"使用的 skill"列，本地无匹配又需专业能力的填"待推荐"（交给 §3 决定）。
@@ -81,7 +81,7 @@ worker 是独立 CLI 会话，**启动在自己的 `agents/<name>/workspace/`、
    ```bash
    uv run team agent create <name> --role <角色> --capabilities <a,b>
    ```
-   然后写 `agents/<name>/prompt.md`（人格+协议）、`agents/<name>/workspace/CLAUDE.md`（热记忆+内联规范）；按 §3 定的 skill 装配**（连同依赖）——在目标 agent 目录下执行 `npx skills add … -y`（不加 `-g`），直接落到 `agents/<name>/.claude/skills/`，绝不装全局**；调 `agent.yaml` 的 `runtime.model`/`max_concurrent`/`skills`/`hidden_skills`（`hidden_skills` 强制对该 agent 的 worker 隐藏指定 skill，并集到 `team.yaml` 的 `defaults.worker_hidden_skills`；`agent create` 默认已填协调者专用的三个）。
+   然后写 `agents/<name>/prompt.md`（人格+协议）、`agents/<name>/workspace/CLAUDE.md`（热记忆+内联规范）；按 §3 定的 skill 装配**（连同依赖）——在目标 agent 目录下执行 `npx skills add … -y`（不加 `-g`），直接落到 `agents/<name>/.claude/skills/`，绝不装全局**；调 `agent.yaml` 的 `runtime.model`/`max_concurrent`/`skills`/`hidden_skills`（`hidden_skills` 强制对该 agent 的 worker 隐藏指定 skill，并集到 `team.yaml` 的 `defaults.worker_hidden_skills`；`agent create` 默认已填协调者专用的四个：team-build / team-run / agent-create / team-evolve）。
 2. **写 plan（任务 DAG）**：一个 plan = 一个 **Job**（按 `goal_id` 独立管理，可多 Job 并存、状态与产物互相隔离）。写到 `coordinator/plans/<goal-id>.json`：
 ```json
 {
@@ -116,7 +116,7 @@ worker 是独立 CLI 会话，**启动在自己的 `agents/<name>/workspace/`、
 }
 ```
 运行时：`fetch` 完成→`extract` 转 `awaiting_expansion`→协调者读 `fetch` summary（如「37 个」）→`uv run team expand <gid> extract --count 12`→生成 `extract.1..12`、`merge.needs` 自动改接到全部 12 个子任务、`extract` 置 `bypassed` 容器；12 个子任务同组、同时最多 4 个在跑。
-   产物：worker cwd 是各自 `workspace/`,跨 agent 产物走 `shared/artifacts/`;goal/`context_refs` 里直接写 `shared/artifacts/<文件>`,框架按 Job 自动命名空间到 `shared/artifacts/<goal_id>/`。
+   产物：worker cwd 是各自 `workspace/`,跨 agent 产物走 `shared/artifacts/`。**goal/expect 里的产出路径写 `artifacts_dir/<文件>`**(worker 信号里的本任务绝对产物目录 `shared/artifacts/<goal_id>/<task_id>/`),别写 `shared/artifacts/<文件>`——worker 会把它当扁平根目录多写一份,跨 Job 互相覆盖;`context_refs` 里读上游产物照写 `shared/artifacts/<文件>`,框架自动解析到本 Job 目录。
    **自检**（逐条过）：① 每个 `capabilities` 至少被一个 agent 命中；② `needs` 里 id 都存在、整图无环；③ 每个 `see_artifacts` 里的 id 都在**同任务的 needs** 里（否则载入期报错）；④ 每个 `reject_to` 里的 id 都是该节点的**传递上游/祖先**（否则载入期报错）——只能打回你消费过其产出的上游；⑤ 每个 `fanout` 节点的 goal **必须含 `{{shard}}`/`{{total}}` 槽**（否则各子任务 goal 完全一样、无法分工），且下游 join 节点 `needs` 先写该模板 id（`expand` 时自动重接线）。
 
 ### 5b. 可复用模板（骨架同、目标不同时）
@@ -141,6 +141,8 @@ uv run team plan coordinator/plans/<模板>.json --as <批次id> --vars-file /tm
 }
 ```
 写好后可让协调者按 `routing.md` 试跑一遍路由，确认该模板对典型目标能被命中、且 `not_when` 把不该命中的目标挡住。
+
+**复盘开关（可选，默认关）**：模板顶层 `"retro": true` 表示这个流程跑完后要自动复盘、产出优化建议（还需全局总闸 `uv run team retro on` 打开才生效）。新建模板**不默认加**；用户明确要「跑完自我优化/复盘」时才加，或之后 `uv run team retro on <模板名>` 打开。
 
 ## 6. 干跑验证（务必先 dry-run）
 ```bash

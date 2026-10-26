@@ -54,6 +54,8 @@ The agent clarifies the goal, designs the DAG, creates the workers, and dry-runs
 | 📦 | **Shared artifacts, opt-in inheritance** | Cross-task artifacts live under the Job directory. Downstream nodes declare `see_artifacts` and the framework hands them the exact upstream files. |
 | 🛡 | **Retry · skip · reject** | Failed tasks retry automatically; unnecessary steps can be bypassed; a reviewer can send work back upstream with feedback accumulated as evidence. |
 | 💬 | **Human in the loop** | A worker that needs a decision pauses and asks; the coordinator relays the answer back into the same session. |
+| 🔁 | **Event-driven waiting** | `wait` harvests every 3s and returns the moment any in-flight task delivers, fails, is rejected, or asks for input; a background `watch` keeps harvesting, timing out, and recycling panes while you are away. |
+| 🧠 | **Automatic retrospectives** | Opt-in: a settled Job spawns a retro Job that analyses the run and files suggestions in `coordinator/insights/backlog.json`, which `team-evolve` picks up. |
 | 📊 | **Live dashboard** | Visualize every Job's DAG, node status, artifacts, reject history, agent load, and plan templates — all locally. |
 
 ## How it works
@@ -75,7 +77,7 @@ flowchart LR
 | **Plan** | `team-build` / `team plan` | Split the goal into a DAG. Nodes declare `needs` (dependencies) and `capabilities`. |
 | **Dispatch** | `team tick` | Every ready node (all dependencies satisfied) is dispatched to a matching worker in parallel. |
 | **Execute** | worker | Each task runs in its own isolated cwd; artifacts go to the Job's artifacts directory. |
-| **Converge** | `team monitor` | Only outbox signals count. Panes are recycled, downstream nodes unlocked, retries and rejects handled. |
+| **Converge** | `team wait` | Only outbox signals count. Panes are recycled, downstream nodes unlocked, retries and rejects handled — returning as soon as any in-flight task changes. |
 | **Deliver** | `team report` | Summaries, timings, and artifact paths for every task. |
 
 The coordinator never guesses what a worker printed in its terminal — **everything is driven by durable on-disk signals**, so an interrupted run can resume from file state.
@@ -128,8 +130,10 @@ The `team` CLI is the engine behind the skills, so you rarely type it by hand. W
 |---|---|---|
 | Plan | `agent` | Create / inspect / remove agents |
 | Plan | `plan` | Load a DAG as a Job; supports `{{slots}}` templates and `--as` instances |
-| Dispatch | `tick` | Run one scheduling round and dispatch every ready node |
-| Dispatch | `monitor` | Scan outboxes, settle completions, unlock downstream, handle retries |
+| Dispatch | `tick` | Run one scheduling round and dispatch every ready node; newly unlocked downstream nodes are `held` so you can retask/skip first |
+| Dispatch | `wait` | Block until an in-flight task changes (done/failed/awaiting input), harvest only — replaces sleep+monitor |
+| Dispatch | `monitor` | Scan outboxes once, settle completions, unlock downstream, handle retries |
+| Dispatch | `watch` | Background harvester (auto-spawned by tick): harvests outboxes, enforces timeouts, recycles panes while you are away — never dispatches |
 | Dispatch | `run` | Loop tick + monitor until the Job completes or gets stuck |
 | Intervene | `skip` | Bypass a step that no longer needs to run; downstream continues |
 | Intervene | `retask` | Rewrite the goal of a not-yet-dispatched downstream step |
@@ -138,19 +142,22 @@ The `team` CLI is the engine behind the skills, so you rarely type it by hand. W
 | Intervene | `expand` | Expand a fan-out template node into K parallel subtasks |
 | Inspect | `jobs` / `status` / `report` | List Jobs, inspect a Job, print the final report |
 | Inspect | `dashboard` | Start the local live dashboard (defaults to `127.0.0.1:8787`, no auth) |
+| Retro | `retro` | `status` / `on` / `off` for retro switches; `run <goal_id>` spawns a retro Job manually |
+| Retro | `insights` | List / show / mark the optimisation suggestions collected from retrospectives |
 | Manage | `job` | Remove a Job (artifacts are kept by default) |
 
 Scheduling commands accept `--dry-run`: they write signals without spawning workers, which is handy for validating a plan.
 
 ## Talk to your agents
 
-Three built-in skills in `.claude/skills/` cover the full loop:
+Four built-in skills in `.claude/skills/` cover the full loop, including self-improvement:
 
 | Skill | Trigger | Responsibility |
 |---|---|---|
 | `team-build` | “Build a team / orchestrate X” | Clarify the goal → create agents → write a plan → dry-run |
 | `agent-create` | “Create / add an agent” | Create a single agent interactively and register it |
-| `team-run` | “Run it / keep going / let the team work” | Drive tick + monitor to completion and report |
+| `team-run` | “Run it / keep going / let the team work” | Drive tick + wait to completion and report |
+| `team-evolve` | “Improve the project / review retro suggestions” | Pick high-value suggestions from the retro backlog, verify and apply them, mark as applied |
 
 ## Plan templates
 
@@ -179,6 +186,8 @@ uv run team plan coordinator/plans/baidu-news-digest.json \
 Missing slots, dangling dependencies, cycles, or invalid `see_artifacts` / `reject_to` references are rejected at load time — a half-baked goal never reaches a worker.
 
 ## Worker completion protocol
+
+The generic delivery protocol (read the inbox, write the outbox, artifact directory, human-in-the-loop) lives in `agent_team/worker_protocol.md` and is injected into the bootstrap prompt by the framework — each agent's `prompt.md` only describes its own role.
 
 Workers read `inbox/<goal_id>__<task_id>.json` and write structured results to `outbox/<goal_id>__<task_id>.json`:
 

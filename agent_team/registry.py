@@ -13,18 +13,19 @@ from .models import AgentManifest, DEFAULT_CLI, DEFAULT_KIND
 
 log = logging.getLogger(__name__)
 
+# 只写角色自己的工作内容：读 inbox → 写 outbox 的通用交付协议由框架在引导语里统一下发
+# （agent_team/worker_protocol.md），不要在 prompt.md 里再抄一份。
 _PROMPT_TMPL = """\
 # {name}
 
-你是 agent-team 中的 **{role}** worker。
+你是 agent-team 中的 **{role}** worker。职责：<一句话说清本角色做什么、不做什么>。
 
-## 完成协议
-1. 读取 inbox 里的任务信号（task_id、goal、context_refs、expect）。
-2. 执行任务；需要的编译/测试按项目约定跑通。
-3. 把结果写入**引导语给出的 outbox 绝对路径**（文件名形如 `<goal_id>__<task_id>.json`）：
-   status(done|failed) / summary / artifacts / error。
-   ⚠ 务必用引导语里的**原名**，**不要**自造 `outbox/<task_id>.json` 这类短名——框架只认
-   `<goal_id>__<task_id>.json`，写错会被判「交付缺失」白重试一轮（产物其实已落盘）。
+## 步骤
+1. <本角色怎么干活；需要的编译/测试按项目约定跑通>
+
+## 产出
+- `artifacts_dir/<文件>`：<产物说明>
+- summary 写：<下游/协调者需要从 summary 里看到什么>
 """
 
 

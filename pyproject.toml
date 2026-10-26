@@ -28,7 +28,7 @@ packages = ["agent_team"]
 version = { attr = "agent_team.__version__" }
 
 [tool.setuptools.package-data]
-agent_team = ["dashboard.html"]
+agent_team = ["dashboard.html", "worker_protocol.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
