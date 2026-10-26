@@ -23,6 +23,10 @@ English · [简体中文](README.md)
 
 <p align="center"><sub>The live dashboard: job pipeline, per-job DAG, agent roster, and reusable plan templates (example data).</sub></p>
 
+[![TEAMS · CONTROL product intro video](docs/images/teams-control-intro.jpg)](docs/videos/teams-control-intro.mp4)
+
+<p align="center"><sub>▶ Click to watch the product intro (53s)</sub></p>
+
 ## Quick Start
 
 **Requirements:** Python 3.11+, [uv](https://github.com/astral-sh/uv), [herdr](https://herdr.dev)
@@ -37,7 +41,7 @@ uv run team dashboard       # open http://127.0.0.1:8787
 
 Then open this directory in herdr / Claude Code and simply talk to it — no commands to memorize:
 
-> 🗣️ “Build me a team that searches AI news and stock news, then merges both into a single HTML digest.”
+> 🗣️ “Build me a team that collects sources A and B in parallel, then merges both into a single HTML report.”
 
 The agent clarifies the goal, designs the DAG, creates the workers, and dry-runs the plan before spawning anything for real.
 
@@ -64,12 +68,12 @@ The agent clarifies the goal, designs the DAG, creates the workers, and dry-runs
 flowchart LR
     goal["🎯 One goal"] --> coord["🧭 Coordinator<br/>current session"]
     coord --> plan["📋 Plan · task DAG"]
-    plan --> w1["🤖 ai-news"]
-    plan --> w2["🤖 stock-news"]
+    plan --> w1["🤖 agent-a"]
+    plan --> w2["🤖 agent-b"]
     w1 --> art["📦 shared/artifacts"]
     w2 --> art
-    art --> w3["🤖 html-digest"]
-    w3 --> out["✅ news-digest.html"]
+    art --> w3["🤖 agent-c"]
+    w3 --> out["✅ final artifact"]
 ```
 
 | Phase | Command | What happens |
@@ -101,6 +105,7 @@ shared/artifacts/         cross-agent artifacts (namespaced by goal_id)
 agent_team/               core Python package
 tests/                    pytest suite
 docs/images/              static assets for the README
+docs/videos/              product intro video for the README
 ```
 
 ## Install the team CLI
@@ -165,22 +170,22 @@ A plan is a Job. Nodes declare dependencies, required capabilities, and which up
 
 ```json
 {
-  "goal_id": "baidu-news-digest",
-  "goal": "Search Baidu News for {{report_date}} and build an HTML digest",
+  "goal_id": "example-pipeline",
+  "goal": "Collect sources A and B in parallel and merge them into one report",
   "tasks": [
-    {"task_id": "ai-news",    "capabilities": ["ai-news"],    "needs": []},
-    {"task_id": "stock-news", "capabilities": ["stock-news"], "needs": []},
-    {"task_id": "merge-html", "capabilities": ["html-report"],
-     "needs": ["ai-news", "stock-news"],
-     "see_artifacts": ["ai-news", "stock-news"]}
+    {"task_id": "collect-a", "capabilities": ["collect"], "needs": []},
+    {"task_id": "collect-b", "capabilities": ["collect"], "needs": []},
+    {"task_id": "merge",    "capabilities": ["report"],
+     "needs": ["collect-a", "collect-b"],
+     "see_artifacts": ["collect-a", "collect-b"]}
   ]
 }
 ```
 
 ```bash
-uv run team plan coordinator/plans/baidu-news-digest.json --show-vars
-uv run team plan coordinator/plans/baidu-news-digest.json \
-  --as news-2026-10-21 --var report_date=2026-10-21
+uv run team plan coordinator/plans/<your-template>.json --show-vars   # list the slots
+uv run team plan coordinator/plans/<your-template>.json \
+  --as <batch-id> --var <slot>=<value>
 ```
 
 Missing slots, dangling dependencies, cycles, or invalid `see_artifacts` / `reject_to` references are rejected at load time — a half-baked goal never reaches a worker.

@@ -23,6 +23,10 @@
 
 <p align="center"><sub>实时看板：任务流水线、每个 Job 的 DAG、Agent 名册与可复用流程模板（示例数据）</sub></p>
 
+[![TEAMS · CONTROL 产品介绍视频](docs/images/teams-control-intro.jpg)](docs/videos/teams-control-intro.mp4)
+
+<p align="center"><sub>▶ 点击播放产品介绍视频（53s）</sub></p>
+
 ## 快速开始
 
 **前置条件**：Python 3.11+、[uv](https://github.com/astral-sh/uv)、[herdr](https://herdr.dev)
@@ -37,7 +41,7 @@ uv run team dashboard       # 打开 http://127.0.0.1:8787
 
 然后在 herdr / Claude Code 中打开本目录，直接对话即可，不用记命令：
 
-> 🗣️ 「建个团队，帮我编排一个『搜索 AI 新闻 + 股票新闻 → 合并生成 HTML 简报』的流程」
+> 🗣️ 「建个团队，帮我并行收集 A、B 两份材料，再合并成一份 HTML 报告」
 
 agent 会先澄清需求、规划 DAG、创建 agent 并 dry-run，确认后再真正拉起 worker 执行。
 
@@ -64,12 +68,12 @@ agent 会先澄清需求、规划 DAG、创建 agent 并 dry-run，确认后再�
 flowchart LR
     goal["🎯 一句话目标"] --> coord["🧭 协调者<br/>当前交互会话"]
     coord --> plan["📋 Plan · 任务 DAG"]
-    plan --> w1["🤖 ai-news"]
-    plan --> w2["🤖 stock-news"]
+    plan --> w1["🤖 agent-a"]
+    plan --> w2["🤖 agent-b"]
     w1 --> art["📦 shared/artifacts"]
     w2 --> art
-    art --> w3["🤖 html-digest"]
-    w3 --> out["✅ news-digest.html"]
+    art --> w3["🤖 agent-c"]
+    w3 --> out["✅ 最终产物"]
 ```
 
 | 阶段 | 命令 | 做什么 |
@@ -101,6 +105,7 @@ shared/artifacts/         跨 agent 共享产物（按 goal_id 分子目录）
 agent_team/               核心 Python 包
 tests/                    pytest 用例
 docs/images/              README 截图等静态资源
+docs/videos/              README 产品介绍视频
 ```
 
 ## 安装 team CLI
@@ -165,22 +170,22 @@ scripts/install.sh --uninstall
 
 ```json
 {
-  "goal_id": "baidu-news-digest",
-  "goal": "检索 {{report_date}} 的百度新闻并合并生成 HTML 简报",
+  "goal_id": "example-pipeline",
+  "goal": "并行收集 A、B 两份材料并合并输出一份报告",
   "tasks": [
-    {"task_id": "ai-news",    "capabilities": ["ai-news"],    "needs": []},
-    {"task_id": "stock-news", "capabilities": ["stock-news"], "needs": []},
-    {"task_id": "merge-html", "capabilities": ["html-report"],
-     "needs": ["ai-news", "stock-news"],
-     "see_artifacts": ["ai-news", "stock-news"]}
+    {"task_id": "collect-a", "capabilities": ["collect"], "needs": []},
+    {"task_id": "collect-b", "capabilities": ["collect"], "needs": []},
+    {"task_id": "merge",    "capabilities": ["report"],
+     "needs": ["collect-a", "collect-b"],
+     "see_artifacts": ["collect-a", "collect-b"]}
   ]
 }
 ```
 
 ```bash
-uv run team plan coordinator/plans/baidu-news-digest.json --show-vars
-uv run team plan coordinator/plans/baidu-news-digest.json \
-  --as news-2026-10-21 --var report_date=2026-10-21
+uv run team plan coordinator/plans/<你的模板>.json --show-vars     # 看模板需要哪些槽
+uv run team plan coordinator/plans/<你的模板>.json \
+  --as <批次id> --var <槽>=<值>
 ```
 
 漏填槽位、悬空依赖、成环、非法的 `see_artifacts` / `reject_to` 都会在载入期直接拦下，不会把半成品发给 worker。
