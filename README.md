@@ -27,7 +27,7 @@
   <video src="https://github.com/user-attachments/assets/1b53cbf3-7750-446b-a3b9-35708019d7a1" controls preload="metadata" width="880"></video>
 </p>
 
-<p align="center"><sub>▶ 产品介绍视频（53s） · <a href="docs/videos/teams-control-intro.mp4">下载到本地观看</a> · <a href="docs/images/teams-control-intro.jpg">封面图</a></sub></p>
+<p align="center"><sub>▶ 产品介绍视频（53s） · <a href="https://github.com/user-attachments/assets/1b53cbf3-7750-446b-a3b9-35708019d7a1">浏览器直接打开</a> · <a href="docs/videos/teams-control-intro.mp4">下载到本地</a> · <a href="docs/images/teams-control-intro.jpg">封面图</a></sub></p>
 
 ## 快速开始
 
