@@ -23,9 +23,11 @@ English · [简体中文](README.md)
 
 <p align="center"><sub>The live dashboard: job pipeline, per-job DAG, agent roster, and reusable plan templates (example data).</sub></p>
 
-[![TEAMS · CONTROL product intro video](docs/images/teams-control-intro.jpg)](docs/videos/teams-control-intro.mp4)
+<p align="center">
+  <video src="https://github.com/user-attachments/assets/1b53cbf3-7750-446b-a3b9-35708019d7a1" controls preload="metadata" width="880"></video>
+</p>
 
-<p align="center"><sub>▶ Click to watch the product intro (53s)</sub></p>
+<p align="center"><sub>▶ Product intro video (53s) · <a href="docs/videos/teams-control-intro.mp4">Download to play locally</a> · <a href="docs/images/teams-control-intro.jpg">Cover image</a></sub></p>
 
 ## Quick Start
 
