@@ -229,19 +229,33 @@ def _runtime(paths: Paths) -> dict[str, Any]:
 
 
 def _tail_events(paths: Paths, limit: int = 60) -> list[dict[str, Any]]:
-    """读 run.log(JSONL) 末尾若干条事件，解析失败的行跳过。"""
+    """读 run.log(JSONL) 末尾若干条事件，解析失败的行跳过。
+
+    run.log 只追加不轮转，只从文件尾按窗口(起步 64KB)倒读：窗口内凑不够 limit 行就翻倍重读，
+    直到够数或读到文件头——轮询开销与日志总长无关。"""
     f = paths.state_dir / "run.log"
-    if not f.exists():
+    if limit <= 0:
         return []
+    window = 64 * 1024
     try:
-        lines = f.read_text(encoding="utf-8").splitlines()
-    except OSError:
+        with open(f, "rb") as fh:
+            size = fh.seek(0, 2)
+            while True:
+                offset = max(0, size - window)
+                fh.seek(offset)
+                data = fh.read(size - offset)
+                if offset > 0:                       # 窗口起点多半落在行中间，丢掉这截残行
+                    data = data[data.find(b"\n") + 1:] if b"\n" in data else b""
+                lines = [ln for ln in data.decode("utf-8", errors="replace").splitlines()
+                         if ln.strip()]
+                if offset == 0 or len(lines) >= limit:
+                    break
+                window *= 2
+    except OSError:                                  # 含文件不存在
         return []
     out: list[dict[str, Any]] = []
     for line in lines[-limit:]:
         line = line.strip()
-        if not line:
-            continue
         try:
             out.append(json.loads(line))
         except json.JSONDecodeError:
