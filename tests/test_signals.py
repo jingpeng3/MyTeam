@@ -7,7 +7,7 @@ import os
 import pytest
 
 from agent_team import herdr, signals
-from agent_team.config import Paths
+from agent_team.config import Paths, read_json_or
 from agent_team.models import DONE, FAILED, REJECT
 
 
@@ -75,6 +75,51 @@ def test_read_outbox_states(paths):
     res, state = signals.read_outbox_ex(paths, "a", "g", "t")
     assert state == "ok" and res.status == DONE and res.artifacts == ["/x"]
     assert res.retryable is False and res.task_id == "t" and res.written_at is not None
+
+
+@pytest.mark.parametrize("payload, field, want", [
+    ({"artifacts": None}, "artifacts", []),                      # null 不再 list(None) 抛 TypeError
+    ({"artifacts": "/tmp/a.md"}, "artifacts", ["/tmp/a.md"]),    # 单串不拆成字符
+    ({"artifacts": ["/a", None, "", 3]}, "artifacts", ["/a", "3"]),
+    ({"artifacts": {"k": "v"}}, "artifacts", []),
+    ({"retryable": "false"}, "retryable", False),
+    ({"retryable": "NO"}, "retryable", False),
+    ({"retryable": "0"}, "retryable", False),
+    ({"retryable": "True"}, "retryable", True),
+    ({"retryable": "yes"}, "retryable", True),
+    ({"retryable": "maybe"}, "retryable", None),
+    ({"retryable": None}, "retryable", None),
+    ({"summary": None}, "summary", ""),
+    ({"summary": 42}, "summary", "42"),
+    ({"error": None}, "error", None),
+    ({"error": {"code": 1}}, "error", "{'code': 1}"),
+    ({"task_id": None}, "task_id", "t"),
+])
+def test_read_outbox_coerces_field_types(paths, payload, field, want):
+    _put(paths.outbox("a") / "g__t.json", {"status": "failed", **payload})
+    res, state = signals.read_outbox_ex(paths, "a", "g", "t")
+    assert state == "ok" and getattr(res, field) == want
+    if isinstance(want, bool) or want is None:
+        assert getattr(res, field) is want
+
+
+# 半截写入切断中文 3 字节字符：解码失败也要按 malformed / default 处理，不能抛 UnicodeDecodeError
+_TRUNCATED_UTF8 = b'{"summary":"\xe5\xae'
+
+
+def test_read_outbox_truncated_multibyte_is_malformed(paths):
+    f = paths.outbox("a") / "g__t.json"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_bytes(_TRUNCATED_UTF8)
+    assert signals.read_outbox_ex(paths, "a", "g", "t") == (None, "malformed")
+
+
+def test_read_json_or_truncated_multibyte_returns_default(tmp_path):
+    f = tmp_path / "state.json"
+    f.write_bytes(_TRUNCATED_UTF8)
+    assert read_json_or(f, "D") == "D"
+    f.write_text("{broken", encoding="utf-8")
+    assert read_json_or(f, "D") == "D"
 
 
 def test_bare_outbox_adopted_only_if_newer(paths):

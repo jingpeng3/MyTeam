@@ -88,7 +88,7 @@ def read_json_or(path: Path, default: Any) -> Any:
         return default
     try:
         return json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+    except (ValueError, OSError):   # ValueError 涵盖 JSONDecodeError 与半截多字节的 UnicodeDecodeError
         return default
 
 
