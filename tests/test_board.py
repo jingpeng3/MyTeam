@@ -1,9 +1,13 @@
-"""Board 的 DAG 逻辑：结构校验、ready/级联跳过、fan-out 展开、终态判定。纯内存，不落盘。"""
+"""Board 的 DAG 逻辑：结构校验、ready/级联跳过、fan-out 展开、终态判定（纯内存）；末尾含载入容错（落盘）。"""
 from __future__ import annotations
+
+import json
+import logging
 
 import pytest
 
 from agent_team.board import Board, DagError
+from agent_team.config import Paths
 from agent_team.models import (Task, PENDING, READY, DONE, FAILED, SKIPPED, BYPASSED,
                                AWAITING_EXPANSION, AWAITING_INPUT)
 
@@ -137,3 +141,28 @@ def test_task_post_init_validation():
         Task("a", "g", max_retries=-1)
     with pytest.raises(ValueError, match="max_parallel"):
         Task("a", "g", fanout={"max_parallel": 0})
+
+
+# ---------- 载入容错 ----------
+
+_OK_TASK = {"task_id": "x", "goal": "g"}
+
+
+@pytest.mark.parametrize("bad", [
+    {"tasks": [{**_OK_TASK, "status": "running"}]},          # 非法 status → ValueError
+    {"tasks": [{**_OK_TASK, "max_retries": -1}]},            # 负数字段 → ValueError
+    {"tasks": [{"task_id": "x"}]},                           # 缺 goal → TypeError
+    {"tasks": [{"goal": "g"}]},                              # 缺 task_id → TypeError
+    {"tasks": None},                                         # tasks=null → TypeError
+    {"tasks": ["x"]},                                        # task 非对象 → AttributeError
+    {"tasks": [_OK_TASK], "version": "abc"},                 # version 非数字 → ValueError
+], ids=["bad-status", "negative", "no-goal", "no-task-id", "tasks-null", "task-not-dict", "bad-version"])
+def test_load_skips_schema_invalid_job(tmp_path, caplog, bad):
+    paths = Paths(tmp_path)
+    paths.jobs_dir.mkdir(parents=True)
+    paths.job_file("bad").write_text(json.dumps({"goal_id": "bad", "goal": "g", **bad}), encoding="utf-8")
+    Board("ok", "g", [Task("x", "g")]).save(paths)
+    with caplog.at_level(logging.WARNING, logger="agent_team.board"):
+        assert Board.load(paths, "bad") is None
+    assert "bad.json" in caplog.text
+    assert [b.goal_id for b in Board.load_all(paths)] == ["ok"]
