@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import time
 from pathlib import Path
 from typing import Any
@@ -41,62 +40,50 @@ def signal_filename(goal_id: str, task_id: str) -> str:
     return f"{goal_id}__{task_id}.json"
 
 
-def _balanced_json_objects(raw: str):
-    """产出 raw 中所有「花括号平衡」的子串（字符串/转义感知），**长者优先**。
+def _embedded_signal(raw: str) -> dict[str, Any] | None:
+    """从「JSON 外裹散文/围栏」里救回信号对象：在每个 `{` 处试 raw_decode，取**含 status 的最长**对象。
 
-    用于从「合法 JSON 外裹散文、且散文里还夹带杂散花括号」里救回对象——worker(LLM) 常在解释
-    文字里写集合记号 `{50}`、模板占位 `{x}` 或示例 JSON 片段。此时朴素的 `find('{')..rfind('}')`
-    首尾切片会把 `{50}. ... {真信号}` 连成一大段不可解析，反把成功跑误判为 malformed。改为扫描
-    所有配平的 `{…}`、按长度降序逐个交给 json.loads——最外层/最完整的对象最可能是真信号。
+    - 逐点 raw_decode 而非手写配平扫描：散文里的杂散 `"`（如 `5" 屏幕`）会翻转手写扫描的串内
+      状态、令其后真信号整段被吞；raw_decode 每个起点独立解析，不受前文干扰。集合记号 `{50}`、
+      模板占位 `{x}` 这类杂散花括号同样只是解析失败的起点，跳过即可。
+    - 必须含 `status`：半截写入（worker 还在写）的外层 `{` 永不闭合，唯一完整的只剩嵌套对象
+      （如 `"meta":{"files":3}`）。若照单全收，`_normalize_status` 会把它判 failed、白烧一次重试；
+      拒收则返回 None → malformed → 走 idle 宽限，等 worker 写完。
+    - 最长者优先：最外层/最完整的对象最可能是真信号；命中后跳过其内部起点（嵌套对象只会更短）。
     """
-    spans: list[tuple[int, int]] = []
-    stack: list[int] = []
-    in_str = esc = False
-    for idx, ch in enumerate(raw):
-        if in_str:                       # 串内的花括号不计深度，转义感知避免 \" 误判串尾
-            if esc:
-                esc = False
-            elif ch == "\\":
-                esc = True
-            elif ch == '"':
-                in_str = False
-            continue
-        if ch == '"':
-            in_str = True
-        elif ch == "{":
-            stack.append(idx)
-        elif ch == "}" and stack:
-            spans.append((stack.pop(), idx + 1))
-    for start, end in sorted(spans, key=lambda s: s[1] - s[0], reverse=True):
-        yield raw[start:end]
-
-
-def _salvage_candidates(raw: str):
-    """按「最可能正确」到「兜底」的顺序，产出待解析的候选字符串。"""
-    yield raw                                   # 1) 原样：worker 已产出合法 JSON 的正常路径
-    stripped = raw.strip()
-    if stripped.startswith("```"):              # 2) 剥 markdown 围栏：```json ... ``` / ``` ... ```
-        body = re.sub(r"^```[^\n]*\n?", "", stripped)
-        body = re.sub(r"\n?```\s*$", "", body)
-        yield body
-    # 3) 花括号平衡扫描：从「JSON 外裹散文（可能含杂散花括号）」里枚举配平对象、长者优先。
-    yield from _balanced_json_objects(raw)
+    dec = json.JSONDecoder()
+    best: dict[str, Any] | None = None
+    best_len = 0
+    i = raw.find("{")
+    while i != -1:
+        try:
+            d, end = dec.raw_decode(raw, i)
+        except ValueError:          # JSONDecodeError 是其子类
+            end = i + 1
+        else:
+            if isinstance(d, dict) and "status" in d:
+                if end - i > best_len:
+                    best, best_len = d, end - i
+            else:
+                end = i + 1          # 不合格的对象可能内含合格者（如外层缺 status），继续往里找
+        i = raw.find("{", end)
+    return best
 
 
 def salvage_json(raw: str) -> dict[str, Any] | None:
     """worker 是 LLM，常把 JSON 包进 ```json 围栏或前后夹带解释文字，令 json.load 直接失败。
-    读侧做一次宽容打捞：原样 → 剥围栏 → 截最外层大括号块，任一能解析出 dict 即采纳；
-    全失败才真判 malformed。只在解析已失败的分支触发，正常路径零开销、无行为改变。"""
-    for idx, candidate in enumerate(_salvage_candidates(raw)):
-        try:
-            d = json.loads(candidate)
-        except (json.JSONDecodeError, ValueError):
-            continue
-        if isinstance(d, dict):
-            if idx > 0:   # 非原样命中：worker 把 JSON 裹进了围栏/散文，打捞救回，留痕便于观察
-                log.debug("salvage_json 通过候选 #%d 打捞成功（原始 JSON 被围栏/散文包裹）", idx)
-            return d
-    return None
+    读侧做一次宽容打捞：原样整段能解析出 dict 即采纳；否则从文中打捞含 status 的对象
+    （见 _embedded_signal，天然覆盖围栏）。全失败才真判 malformed。"""
+    try:
+        d = json.loads(raw)
+    except ValueError:
+        d = None
+    if isinstance(d, dict):
+        return d
+    d = _embedded_signal(raw)
+    if d is not None:   # 非原样命中：worker 把 JSON 裹进了围栏/散文，打捞救回，留痕便于观察
+        log.debug("salvage_json 从围栏/散文中打捞出信号对象")
+    return d
 
 
 def write_inbox(paths: Paths, agent: str, goal_id: str,
@@ -141,8 +128,8 @@ def read_outbox_ex(paths: Paths, agent: str, goal_id: str,
     """读 outbox 并返回 (结果, 状态)。状态区分三种情形，供 monitor 精确处置：
 
     - "missing"  ：文件不存在（worker 尚未交付 / 静默死亡）。
-    - "malformed"：文件存在但**打捞后仍**无法解析出 JSON 对象（半截写入 / 输出契约坏）。
-      读侧先经 salvage_json 宽容打捞（剥围栏、截大括号块），扛住 LLM 最常见的
+    - "malformed"：文件存在但**打捞后仍**无法解析出信号对象（半截写入 / 输出契约坏）。
+      读侧先经 salvage_json 宽容打捞（从围栏/散文中取含 status 的对象），扛住 LLM 最常见的
       「合法 JSON 外裹了 ```围栏/散文」破坏——这类此前会被误判 malformed → 成功跑成假失败。
     - "ok"       ：正常解析出 Result。
 
