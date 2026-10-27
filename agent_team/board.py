@@ -154,7 +154,14 @@ class Board:
         if not isinstance(d, dict) or "goal_id" not in d:
             log.warning("Job 文件损坏或结构非法，已跳过：%s", f)
             return None
-        return cls.from_dict(d)
+        # schema 级损坏同样容错：非法 status/负数字段（Task.__post_init__ 抛 ValueError）、
+        # 缺 goal/task_id 或 tasks=null（TypeError）、task 不是对象（AttributeError）、version 非数字。
+        # 严格校验留在 plan 载入路径（cli 直接构造 Board），这里只读落盘态，不该一坏全坏。
+        try:
+            return cls.from_dict(d)
+        except (TypeError, ValueError, AttributeError) as e:
+            log.warning("Job 文件 schema 非法，已跳过：%s（%s: %s）", f, type(e).__name__, e)
+            return None
 
     @staticmethod
     def list_job_ids(paths: Paths) -> list[str]:
