@@ -25,14 +25,33 @@ def test_normalize_status(raw, want):
     '```json\n{"status": "done"}\n```',
     'here you go: {"status": "done"} thanks',
     '集合 {50} 与模板 {x}，信号：{"status": "done", "note": "a } in str"}',
+    '完成了 5" 屏幕适配 {"task_id":"t","status":"done"}',            # 散文杂散引号不吞信号
+    '结果如下：\n```json\n{"status": "done", "meta": {"files": 3}}\n```\n以上。',
+    '{"meta": {"status": "done"}, "oops": ',                         # 外层缺 status 时往里找
 ])
 def test_salvage_json_recovers(raw):
     assert signals.salvage_json(raw)["status"] == "done"
 
 
-@pytest.mark.parametrize("raw", ["", "not json", "[1, 2]", "{broken"])
+def test_salvage_json_prefers_outermost_signal():
+    d = signals.salvage_json('ok: {"status": "done", "meta": {"files": 3}} 谢谢')
+    assert d == {"status": "done", "meta": {"files": 3}}
+
+
+# 半截写入：外层 `{` 未闭合，唯一完整的是嵌套对象——不得当信号采纳（否则判 failed 白烧重试）
+_TRUNCATED = '{"task_id":"t","status":"done","meta":{"files":3},"summary":"写到一半'
+
+
+@pytest.mark.parametrize("raw", ["", "not json", "[1, 2]", "{broken", _TRUNCATED,
+                                 '说明 {"files": 3} 无 status'])
 def test_salvage_json_gives_up(raw):
     assert signals.salvage_json(raw) is None
+
+
+def test_read_outbox_truncated_is_malformed(tmp_path):
+    paths = Paths(tmp_path)
+    _put(paths.outbox("a") / "g__t.json", _TRUNCATED)
+    assert signals.read_outbox_ex(paths, "a", "g", "t") == (None, "malformed")
 
 
 @pytest.fixture
