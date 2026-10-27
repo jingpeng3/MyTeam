@@ -169,6 +169,60 @@ def test_dashboard_routes(proj, monkeypatch):
         httpd.server_close()
 
 
+def test_dashboard_host_name_parse():
+    from agent_team.dashboard import _host_name
+    assert _host_name("localhost:8787") == "localhost"
+    assert _host_name("127.0.0.1") == "127.0.0.1"
+    assert _host_name("[::1]:8787") == "::1"
+    assert _host_name("[::1]") == "::1"
+    assert _host_name("::1") == "::1"                         # 裸 IPv6 不误切
+    assert _host_name("Evil.Example:80") == "evil.example"
+    assert _host_name("[::1") == "" and _host_name(None) == "" and _host_name("") == ""
+
+
+def test_dashboard_rejects_foreign_host(proj):
+    """防 DNS rebinding：绑回环时 Host 非本机名一律 403；绑非回环不校验。"""
+    import http.client
+    import threading
+    import urllib.error
+    import urllib.request
+    from http.server import ThreadingHTTPServer
+
+    from agent_team import dashboard
+
+    def start(bind_host):
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), dashboard._make_handler(Paths(proj), host=bind_host))
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        return httpd, httpd.server_address[1]
+
+    def get(port, host_header=None):
+        headers = {"Host": host_header} if host_header else {}
+        req = urllib.request.Request(f"http://127.0.0.1:{port}/api/state", headers=headers)
+        try:
+            with urllib.request.urlopen(req) as r:
+                return r.status
+        except urllib.error.HTTPError as e:
+            return e.code
+
+    httpd, port = start("127.0.0.1")
+    open_httpd, open_port = start("0.0.0.0")
+    try:
+        assert get(port) == 200
+        assert get(port, f"localhost:{port}") == 200
+        assert get(port, f"[::1]:{port}") == 200
+        assert get(port, "evil.example") == 403
+        assert get(port, f"evil.example:{port}") == 403
+        assert get(open_port, "evil.example") == 200              # 非回环绑定：用户已知情，不校验
+        conn = http.client.HTTPConnection("127.0.0.1", port)      # 缺 Host 头：回环绑定下拒
+        conn.putrequest("GET", "/api/state", skip_host=True)
+        conn.endheaders()
+        assert conn.getresponse().status == 403
+        conn.close()
+    finally:
+        for h in (httpd, open_httpd):
+            h.shutdown()
+            h.server_close()
+
 # ---------- 项目根定位 ----------
 
 def test_project_root_cwd_then_package_fallback(tmp_path, monkeypatch):
