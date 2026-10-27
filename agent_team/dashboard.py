@@ -453,7 +453,27 @@ def build_state(paths: Paths) -> dict[str, Any]:
             "agents": agents, "inflight": inflight, "events": _tail_events(paths)}
 
 
-def _make_handler(paths: Paths):
+_LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
+
+
+def _host_name(host_header: str | None) -> str:
+    """从 Host 头取主机名：去端口、去 IPv6 方括号、转小写。缺失/空 → ""。
+    `localhost:8787`→`localhost`；`[::1]:8787`→`::1`；裸 `::1`（多冒号无括号）原样。"""
+    h = (host_header or "").strip().lower()
+    if h.startswith("["):
+        end = h.find("]")
+        return h[1:end] if end > 0 else ""
+    if h.count(":") == 1:
+        h = h.split(":", 1)[0]
+    return h
+
+
+def _make_handler(paths: Paths, host: str = "127.0.0.1"):
+    # 绑回环地址时校验 Host 头防 DNS rebinding：恶意网页把自家域名解析到 127.0.0.1 后，
+    # 浏览器会带着 `Host: evil.example` 来读本机面板。缺 Host 也拒（浏览器/HTTP1.1 必带，
+    # 无法核验就不放行）。绑非回环地址是用户显式选择且已告警，不强制（否则按 IP/域名访问会被误拒）。
+    check_host = host in _LOOPBACK_HOSTS
+
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args):        # 静音默认 stderr 访问日志
             return
@@ -474,6 +494,9 @@ def _make_handler(paths: Paths):
             return (parse_qs(urlparse(self.path).query).get(name) or [default])[0].strip()
 
         def do_GET(self):
+            if check_host and _host_name(self.headers.get("Host")) not in _LOOPBACK_HOSTS:
+                self._send(403, b"forbidden (bad Host header)", "text/plain")
+                return
             # 按路径精确路由（不做前缀匹配：否则 /api/job 会吞掉 /api/jobs 之类的新路由）
             route = {
                 "/api/state": self._serve_state,
@@ -595,12 +618,12 @@ def _make_handler(paths: Paths):
 
 
 def serve(paths: Paths, port: int = 8787, host: str = "127.0.0.1") -> None:
-    if host not in ("127.0.0.1", "localhost", "::1"):
+    if host not in _LOOPBACK_HOSTS:
         # 看板无鉴权、可读全部 Job/产物：绑非回环地址等于把它暴露到网络，醒目告警。
         log.warning("dashboard 绑定了非回环地址 %s —— 面板无鉴权，任何能访问该地址的人都能读全部 "
                     "Job/产物，仅在可信内网/明确知情时使用", host)
         print(f"⚠ 警告：--host {host} 非回环地址，看板无鉴权将暴露到网络！")
-    httpd = ThreadingHTTPServer((host, port), _make_handler(paths))
+    httpd = ThreadingHTTPServer((host, port), _make_handler(paths, host=host))
     url = f"http://{host}:{port}"
     print(f"TEAMS dashboard → {url}  (Ctrl+C 停止；仅本机、无鉴权)")
     try:
