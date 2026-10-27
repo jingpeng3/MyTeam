@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 
 import pytest
 
@@ -86,14 +87,45 @@ def test_clear_quarantines_malformed(paths):
 
 # ---------- herdr.sanitize_name ----------
 
-@pytest.mark.parametrize("raw, want", [
-    ("Coder", "coder"), ("x scout:t1", "x-scout-t1"), ("1abc", "a1abc"), ("", "a"),
+_HERDR_NAME_RE = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+
+
+@pytest.mark.parametrize("raw", ["coder", "x-scout-t1", "a1abc", "w_g-t1-a1p0", "a" * 32])
+def test_sanitize_name_clean_unchanged(raw):
+    assert herdr.sanitize_name(raw) == raw          # 本就合法的短名原样返回（幂等）
+
+
+@pytest.mark.parametrize("raw, head", [
+    ("Coder", "coder-"), ("x scout:t1", "x-scout-t1-"), ("1abc", "a1abc-"), ("", "a-"),
 ])
-def test_sanitize_name_short(raw, want):
-    assert herdr.sanitize_name(raw) == want
+def test_sanitize_name_lossy_keeps_readable_head(raw, head):
+    out = herdr.sanitize_name(raw)
+    assert out.startswith(head) and len(out) == len(head) + 6
+
+
+@pytest.mark.parametrize("a, b", [
+    ("w:g:tpl.1:a1p0", "w:g:tpl-1:a1p0"),   # fan-out 子任务 vs plan 任务
+    ("Build", "build"),                      # 仅大小写不同
+    ("1abc", "a1abc"),                       # 补首字母后同形
+    ("-abc", "abc"),                         # 去首尾 - 后同形
+])
+def test_sanitize_name_lossy_no_collision(a, b):
+    assert herdr.sanitize_name(a) != herdr.sanitize_name(b)
 
 
 def test_sanitize_name_long_keeps_uniqueness():
     a = herdr.sanitize_name("very-long-agent-name-here:some-task-id:a1")
     b = herdr.sanitize_name("very-long-agent-name-here:some-task-id:a2")
     assert a != b and len(a) <= 32 and len(b) <= 32
+
+
+@pytest.mark.parametrize("raw", [
+    "", "-", "---", "9", "123abc", "_x", "Coder", "x scout:t1", "w:g:tpl.1:a1p0",
+    "智能体:任务", "émoji🚀:t1", "a" * 32, "a" * 33, "A" * 100,
+    "very-long-agent-name-here:some-task-id:a1", "x" * 24 + "-" + "y" * 20,
+    "scout:" + "g" * 40 + ":t1:a1p0",
+])
+def test_sanitize_name_always_valid(raw):
+    out = herdr.sanitize_name(raw)
+    assert _HERDR_NAME_RE.match(out), out
+    assert herdr.sanitize_name(out) == out           # 输出已合法 → 再过一遍不变
