@@ -31,6 +31,19 @@ DEFAULT_CLI = "claude"
 DEFAULT_KIND = "claude"     # herdr agent kind
 
 
+def _as_list(v: Any) -> list:
+    """YAML 列表字段归一：null→[]、标量→[标量]、list/tuple→list。
+
+    裸 `list(v)` 会让 null 抛 TypeError、`capabilities: python` 被拆成单字符
+    （能力匹配恒为 0、flags 逐字符传给 CLI）。
+    """
+    if v is None:
+        return []
+    if isinstance(v, (list, tuple)):
+        return list(v)
+    return [v]
+
+
 @dataclass
 class Runtime:
     cli: str = DEFAULT_CLI
@@ -45,7 +58,7 @@ class Runtime:
             cli=d.get("cli", DEFAULT_CLI),
             kind=d.get("kind", DEFAULT_KIND),
             model=d.get("model", ""),
-            flags=list(d.get("flags", [])),
+            flags=_as_list(d.get("flags")),
         )
 
 
