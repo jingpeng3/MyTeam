@@ -55,7 +55,9 @@ def reconcile_ledger(paths: Paths, scope_goal_id: str | None = None) -> int:
         boards = Board.load_all(paths)
     live: set[str] = set()
     for b in boards:
-        for t in b.dispatched_tasks():
+        # 在途 = dispatched + awaiting_input：打回升级 parked 的条目 pane 已关、herdr 报 gone，
+        # 只认 dispatched 会把它当孤儿回收 → monitor 判 ledger-lost 重派，绕过人工裁决闸门
+        for t in b.pollable_tasks():
             live.add(runtime_key(b.goal_id, t.task_id))
     orphans: dict[str, Any] = {}
     for k, v in candidates.items():

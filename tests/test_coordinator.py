@@ -321,6 +321,19 @@ def test_auto_reject_exhausted_parks_rejecter(paths, fake):
     assert res["applied"] == ["impl"] and rev.status == PENDING and _rt(paths) == {}
 
 
+def test_reconcile_keeps_parked_rejecter_entry(paths, fake):
+    # 打回升级后 pane 已关、herdr 报 gone：下一轮 tick 的对账不能把它当孤儿回收，否则 monitor 判 ledger-lost 重派、绕过裁决闸门
+    b = _impl_rev(paths, fake)
+    b.tasks["impl"].reject_count = coordinator.MAX_REJECTS
+    _outbox(paths, "w1", "rev", {"status": "reject", "reject_to": "impl", "summary": "还是不行"})
+    coordinator.monitor_once(paths, b)
+    rev = b.tasks["rev"]
+    assert rev.status == AWAITING_INPUT
+    fake.status[_rt(paths)["g:rev"]["herdr_name"]] = "gone"
+    coordinator.tick(paths, b)
+    assert rev.status == AWAITING_INPUT and _rt(paths)["g:rev"]["escalated"] is True
+
+
 def test_auto_reject_to_illegal_target_completes_rejecter(paths, fake):
     b = _impl_rev(paths, fake)
     _outbox(paths, "w1", "rev", {"status": "reject", "reject_to": "ghost", "summary": "?"})
