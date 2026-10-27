@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import contextlib
+import copy
 import json
 import time
 from pathlib import Path
@@ -36,18 +37,26 @@ def lock(paths: Paths):
         yield
 
 
+def snapshot(rt: dict[str, Any]) -> dict[str, Any]:
+    """load 后立即取的深拷贝基线，供 commit_merge 判定本进程改了哪些 key。
+    必须深拷：调用方常就地改条目(info = rt[k]; info[...] = ...)，浅拷会让基线跟着变。"""
+    return copy.deepcopy(rt)
+
+
 def commit_merge(paths: Paths, rt: dict[str, Any],
-                          original_keys: set[str]) -> None:
+                 original: dict[str, Any]) -> None:
     """给「持有全量 rt、只更新/删除已有条目、从不新增条目」的长流程(monitor_once/reconcile_ledger)
     用的收尾合并：不在 herdr 轮询期间长持锁，只在最后一步锁内把本进程的改动合并进磁盘最新态——
-    本进程删除的 key 生效删除、持有/更新的 key 覆盖写，**并发新增的 key(本进程从未见过)因保留磁盘态
-    而存活**（这正是丢更新里最常见、危害最大的「新分派条目被覆盖」场景）。"""
-    removed = set(original_keys) - set(rt)
+    相对基线 original(snapshot) 删除的 key 生效删除、值有变的 key 覆盖写；**本进程没动过的 key 保留
+    磁盘态**，并发新增的 key 也因此存活。调用方只持单个 Job 的 job_lock，却 load 了全量 rt：
+    若整字典回写，别的 Job 期间的并发写(answer/skip/retask 重置时钟、删条目)会被陈旧快照覆盖或复活。"""
+    removed = set(original) - set(rt)
+    changed = {k: v for k, v in rt.items() if v != original.get(k)}
     with file_lock(_runtime_file(paths)):
         disk = read_json_or(_runtime_file(paths), {})
         for k in removed:
             disk.pop(k, None)
-        disk.update(rt)
+        disk.update(changed)
         atomic_write_json(_runtime_file(paths), disk)
 
 
