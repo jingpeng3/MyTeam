@@ -546,6 +546,7 @@ let dagView = 'global';   // 右侧栏视图：'global'=全局看板（默认，
 let gvArtOpen = true;     // 全局看板「全局产出」是否展开（跨 2.5s 刷新记住，见 globalPanel/toggleGvArt）
 const collapsed = new Set(['agt','tpl','log']);     // 右栏低价值面板默认收起：Agent 名册 / 流程模板 / 事件日志
 let tailName = null, tailTimer = null, tailAbort = null, tailText = '';  // 单节点实时对话尾读
+let liveScroll = {top:0, follow:true};   // 节点详情实时对话的滚动位：侧栏每轮重渲染会重建 #liveTerm，靠它跨刷新保住
 let inflightTails = {};        // 底部执行中面板：herdr_name -> 近段输出（每 3s 批量拉一次）
 const termScroll = {};         // herdr_name -> {top, follow}：跨刷新保住每张卡片的滚动位置，只有贴底时才跟随
 let tailsTimer = null;
@@ -574,6 +575,17 @@ function paginate(k, items){
   return {rows: items.slice((p-1)*size, p*size), pager};
 }
 function toggleColl(k){ collapsed.has(k) ? collapsed.delete(k) : collapsed.add(k); if(lastState) render(lastState, false); }
+/* 整块 innerHTML 重渲染会重建内部滚动容器、scrollTop 归零（表现为「往下翻着翻着又跳回顶」）。
+   带 data-sk="<稳定键>" 的滚动容器：渲染前按键记位置、渲染后恢复；页面级滚动一并保住（内容高度抖动时兜底）。 */
+function keepScroll(root, paint){
+  const pos = {};
+  root.querySelectorAll('[data-sk]').forEach(el=>{ pos[el.dataset.sk] = [el.scrollTop, el.scrollLeft]; });
+  const wx = window.scrollX, wy = window.scrollY;
+  paint();
+  root.querySelectorAll('[data-sk]').forEach(el=>{
+    const p = pos[el.dataset.sk]; if(p){ el.scrollTop = p[0]; el.scrollLeft = p[1]; } });
+  if(window.scrollX !== wx || window.scrollY !== wy) window.scrollTo(wx, wy);
+}
 
 const esc = s => String(s??'').replace(/[&<>"'\\]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;','\\':'&#92;'}[c]));
 const pad = n => String(n).padStart(2,'0');
@@ -643,10 +655,11 @@ function render(s, anim){
     <div class="col">${agentsPanel(s.agents, rc)}${templatesPanel(s.templates, rc)}${logPanel(s.events, rc)}</div>
   </div>`;
 
-  $.innerHTML = head + kpis + grid + workersPanel(s.inflight, rc);
+  keepScroll($, ()=>{ $.innerHTML = head + kpis + grid + workersPanel(s.inflight, rc); });   // 保住页面与事件流滚动位
   restoreWorkerTerms();                                   // 刷新后按记忆恢复各卡片滚动位置（避免每次跳到底）
-  if(hadSearchFocus){ const sb=document.getElementById('jobSearch');   // 恢复搜索框聚焦+光标
-    if(sb){ sb.focus(); if(searchCaret!=null) try{ sb.setSelectionRange(searchCaret,searchCaret); }catch(e){} } }
+  // 恢复搜索框聚焦+光标；preventScroll：聚焦着往下翻时，focus() 默认会把页面拽回搜索框（顶部）
+  if(hadSearchFocus){ const sb=document.getElementById('jobSearch');
+    if(sb){ sb.focus({preventScroll:true}); if(searchCaret!=null) try{ sb.setSelectionRange(searchCaret,searchCaret); }catch(e){} } }
   // 底部执行中面板可见（无 DAG 覆盖层且有在途 worker）才拉实时纪录，避免覆盖层遮挡时白读 pane
   if(!dagKind && (s.inflight||[]).length) startTailsPoll(); else stopTailsPoll();
   if(dagKind) syncDag();   // DAG 覆盖层打开时随轮询实时刷新
@@ -931,10 +944,12 @@ function paintAgent(d){
     </div>`;
 }
 function closeAgent(){ amName=null; const o=document.getElementById('amOv'); if(o) o.remove(); }
-/* 捕获阶段监听任意卡片终端的滚动：记住位置与是否贴底（贴底=下轮继续跟随） */
+/* 捕获阶段监听卡片终端 / 节点实时对话的滚动：记住位置与是否贴底（贴底=下轮继续跟随） */
 document.addEventListener('scroll', e=>{
   const el = e.target;
-  if(!el || !el.classList || !el.classList.contains('wterm')) return;
+  if(!el || !el.classList) return;
+  if(el.id==='liveTerm'){ liveScroll = {top: el.scrollTop, follow: el.scrollHeight-el.scrollTop-el.clientHeight < 52}; return; }
+  if(!el.classList.contains('wterm')) return;
   const near = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
   termScroll[el.dataset.name] = {top: el.scrollTop, follow: near};
 }, true);
@@ -1010,7 +1025,7 @@ function logPanel(events, rc){
   const body = rows || `<div class="empty">暂无调度事件</div>`;
   return `<div class="panel log ${collapsed.has('log')?'collapsed':''} ${rc}" style="animation-delay:420ms">
     ${collHead('log','调度事件流 · run.log',`<span class="tag">${(events||[]).length} 条</span>`)}
-    <div class="pbody-c stream">${body}</div></div>`;
+    <div class="pbody-c stream" data-sk="log">${body}</div></div>`;
 }
 /* ---------- DAG overlay：点开 Job → 活账本依赖图；点开模板 → 只读蓝图 ---------- */
 function openDag(gid){ dagKind='job'; dagKey=gid; dagSel=null; dagView='global'; syncDag(); }
@@ -1024,9 +1039,9 @@ document.addEventListener('keydown', e=>{ if(e.key==='Escape' && dagKind) closeD
    切节点/关面板即停；服务端再叠 1.8s 缓存兜重叠请求。 */
 function paintTerm(){
   const el=document.getElementById('liveTerm'); if(!el) return;
-  const near = el.scrollHeight-el.scrollTop-el.clientHeight < 52;   // 贴底时才自动跟随
-  el.textContent = tailText || '（暂无输出）';
-  if(near) el.scrollTop = el.scrollHeight;
+  const txt = tailText || '（暂无输出）';
+  if(el.textContent !== txt) el.textContent = txt;
+  el.scrollTop = liveScroll.follow ? el.scrollHeight : liveScroll.top;   // 贴底时才自动跟随，上翻过则保持
 }
 function fetchTail(name){
   if(tailAbort) tailAbort.abort();
@@ -1038,7 +1053,7 @@ function fetchTail(name){
 }
 function startTail(name){
   if(tailName===name){ paintTerm(); return; }              // 同节点：只补画，不重开轮询
-  stopTail(); tailName=name; tailText='… 载入中'; paintTerm();
+  stopTail(); tailName=name; tailText='… 载入中'; liveScroll={top:0,follow:true}; paintTerm();
   fetchTail(name); tailTimer=setInterval(()=>fetchTail(name),3000);
 }
 function stopTail(){
@@ -1451,7 +1466,7 @@ function detailPanel(job){
   const live=(t.status==='dispatched'&&t.herdr_name)
     ? `<div class="det-sec live"><h4>实时对话 · Live<span class="live-dot"></span>
          <span class="live-src" title="${esc(t.herdr_name)}">${esc(t.herdr_name)}</span></h4>
-       <div class="term" id="liveTerm">… 载入中</div></div>`
+       <div class="term" id="liveTerm">${tailName===t.herdr_name&&tailText?esc(tailText):'… 载入中'}</div></div>`
     : '';
   // 打回：本节点可打回哪些上游 / 被打回过几次 / 历次意见（凭证）
   const canRej=(t.reject_to||[]).length?`${row('可打回', (t.reject_to||[]).map(esc).join(', ')+' · 上限 '+((t.max_rejects||0)||'默认'))}`:'';
