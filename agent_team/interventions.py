@@ -68,7 +68,7 @@ def answer_task(paths: Paths, board: Board, task_id: str, text: str) -> dict[str
     if task.status != AWAITING_INPUT:
         return {"ok": False, "error": f"task {task_id!r} 当前状态 {task.status}，非 awaiting_input，无需回答"}
     rt = ledger.load(paths)
-    original_keys = set(rt)
+    original = ledger.snapshot(rt)
     rkey = runtime_key(gid, task_id)
     info = rt.get(rkey, {})
     if info.get("escalated"):
@@ -93,7 +93,7 @@ def answer_task(paths: Paths, board: Board, task_id: str, text: str) -> dict[str
     info["dispatched_at"] = now           # 重置存活时钟：答复后按新任务给足硬上限预算
     info["idle_since"] = None
     rt[rkey] = info
-    ledger.commit_merge(paths, rt, original_keys)
+    ledger.commit_merge(paths, rt, original)
     board.save(paths)
     ledger.log_event(paths, "task_answered", goal_id=gid, task_id=task_id, agent=task.agent)
     return {"ok": True}
@@ -117,7 +117,7 @@ def bypass_tasks(paths: Paths, board: Board, task_ids: list[str],
     out: dict[str, Any] = {"bypassed": [], "not_found": [],
                            "already_terminal": [], "newly_ready": []}
     rt = ledger.load(paths)
-    original_keys = set(rt)
+    original = ledger.snapshot(rt)
     rt_dirty = False
     for tid in task_ids:
         task = board.tasks.get(tid)
@@ -147,7 +147,7 @@ def bypass_tasks(paths: Paths, board: Board, task_ids: list[str],
             if t.status == READY and t.task_id not in before)
         board.save(paths)
     if rt_dirty:
-        ledger.commit_merge(paths, rt, original_keys)
+        ledger.commit_merge(paths, rt, original)
     return _with_progress(out, board)
 
 
@@ -190,9 +190,9 @@ def retask_task(paths: Paths, board: Board, task_id: str, *,
             out["rejected_running"].append(task_id)  # 在途(在跑/等人)：goal 已冻结，需 --force 回收重派或先 skip
             return out
         rt = ledger.load(paths)                     # force：回收在途 pane/信号/workspace/账本
-        original_keys = set(rt)
+        original = ledger.snapshot(rt)
         reclaim.reclaim_task(paths, rt, gid, task_id, task.agent)
-        ledger.commit_merge(paths, rt, original_keys)
+        ledger.commit_merge(paths, rt, original)
         task.close_run("retasked", time.time())       # 被回收的那次尝试留痕，不丢耗时
         task.status = PENDING                         # 重置为待派，refresh_ready 依 deps 提升回 READY
         task.attempts = 0                             # 兑现「retask 不消耗 max_retries」：在途 force 回收重派
@@ -333,7 +333,7 @@ def apply_reject(paths: Paths, board: Board, target_id: str, *,
     手动为授权动作，跳过「声明约束」校验；默认仍受 loop guard 约束，--force 越过上限并救活已升级节点。
     返回核心结果 + complete/summary。"""
     rt = ledger.load(paths)
-    original_keys = set(rt)
+    original = ledger.snapshot(rt)
     reason = reason or "协调者手动打回"
     out = apply_reject_core(paths, board, rt, target_id, from_task=from_task,
                              reason=reason, evidence=evidence,
@@ -342,7 +342,7 @@ def apply_reject(paths: Paths, board: Board, target_id: str, *,
         board.refresh_ready()
         board.save(paths)
     if out.get("rt_dirty"):
-        ledger.commit_merge(paths, rt, original_keys)
+        ledger.commit_merge(paths, rt, original)
     return _with_progress(out, board)
 
 

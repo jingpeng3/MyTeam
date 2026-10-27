@@ -45,7 +45,7 @@ def reconcile_ledger(paths: Paths, scope_goal_id: str | None = None) -> int:
     rt = ledger.load(paths)
     if not rt:
         return 0
-    original_keys = set(rt)              # 收尾按锁内合并提交，避免与并发驱动者互相覆盖丢更新
+    original = ledger.snapshot(rt)              # 收尾按锁内合并提交，避免与并发驱动者互相覆盖丢更新
     if scope_goal_id is not None:
         candidates = {k: v for k, v in rt.items() if split_runtime_key(k)[0] == scope_goal_id}
         b = Board.load(paths, scope_goal_id)
@@ -73,7 +73,7 @@ def reconcile_ledger(paths: Paths, scope_goal_id: str | None = None) -> int:
         if tid_k:                                       # 连带清其残留 scratch 子目录
             clear_task_workspace(paths, v.get("agent", ""), gid_k, tid_k)
         ledger.log_event(paths, "ledger_orphan_reaped", key=k, agent=v.get("agent"))
-    ledger.commit_merge(paths, kept, original_keys)
+    ledger.commit_merge(paths, kept, original)
     return len(orphans)
 
 
@@ -142,7 +142,7 @@ def close_goal_panes(paths: Paths, goal_id: str) -> int:
     修复「重载 plan / 删除 Job 只清信号与账本、却遗弃在途 pane」导致的孤儿 pane 泄漏。
     """
     rt = ledger.load(paths)
-    original_keys = set(rt)
+    original = ledger.snapshot(rt)
     closed = 0
     remaining = {}
     for k, v in rt.items():
@@ -159,7 +159,7 @@ def close_goal_panes(paths: Paths, goal_id: str) -> int:
         else:
             remaining[k] = v
     if remaining != rt:
-        ledger.commit_merge(paths, remaining, original_keys)
+        ledger.commit_merge(paths, remaining, original)
     if closed:
         ledger.log_event(paths, "goal_panes_closed", goal_id=goal_id, count=closed)
     return closed

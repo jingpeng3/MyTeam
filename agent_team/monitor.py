@@ -278,7 +278,7 @@ def monitor_once(paths: Paths, board: Board, close_panes: bool = True) -> list[s
     - 账本无此 dispatched 条目(ledger-lost) → 判失败重发。
     """
     rt = ledger.load(paths)
-    original_keys = set(rt)     # 收尾按锁内合并提交，保住并发驱动者(如后台 run)期间新增的分派条目
+    original = ledger.snapshot(rt)     # 收尾按锁内合并提交，保住并发驱动者(如后台 run)期间新增的分派条目
     gid = board.goal_id
     changed: list[str] = []
     rt_dirty = False
@@ -330,7 +330,7 @@ def monitor_once(paths: Paths, board: Board, close_panes: bool = True) -> list[s
         log_new_skips(paths, board, board.refresh_ready())
         board.save(paths)
     if rt_dirty:
-        ledger.commit_merge(paths, rt, original_keys)
+        ledger.commit_merge(paths, rt, original)
     return changed
 
 
