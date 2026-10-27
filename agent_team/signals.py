@@ -32,6 +32,33 @@ def _normalize_status(raw: Any) -> str:
     return FAILED  # 缺失/未知/显式失败一律判失败（仅成功/打回同义词才另归一）
 
 
+_FALSE_WORDS = {"false", "0", "no"}
+_TRUE_WORDS = {"true", "1", "yes"}
+
+
+def _as_str_list(v: Any) -> list[str]:
+    """outbox 列表字段归一化：null→[]、单个串→[串]（防 list("/a.md") 拆成字符）、
+    list/tuple 逐项转 str 并丢空项、其余类型→[]。"""
+    if isinstance(v, str):
+        return [v] if v.strip() else []
+    if isinstance(v, (list, tuple)):
+        return [str(x) for x in v if x is not None and str(x).strip()]
+    return []
+
+
+def _as_retryable(v: Any) -> bool | None:
+    """retryable 归一化：bool/None 原样；"false"/"0"/"no" 等串（大小写不敏感）映射成 bool，
+    否则 `res.retryable is False` 永不命中；无法识别的值按「未声明」None 处理。"""
+    if v is None or isinstance(v, bool):
+        return v
+    s = str(v).strip().lower()
+    if s in _FALSE_WORDS:
+        return False
+    if s in _TRUE_WORDS:
+        return True
+    return None
+
+
 def _write_json(path: Path, data: dict[str, Any]) -> None:
     atomic_write_json(path, data)  # tmp + os.replace，避免 worker 读到半截
 
@@ -158,18 +185,21 @@ def read_outbox_ex(paths: Paths, agent: str, goal_id: str,
     try:
         text = p.read_text(encoding="utf-8")
         written_at: float | None = p.stat().st_mtime   # worker 落盘时刻，比 monitor 观测到更准
-    except OSError:
+    except (OSError, UnicodeDecodeError):
+        # 半截写入可能切断中文的多字节字符 → 解码失败，与不可解析内容同判 malformed（走 idle 宽限）
         return None, "malformed"
     d = salvage_json(text)
     if d is None:
         return None, "malformed"   # 打捞也救不回；调用方按「已 idle + 超宽限」才终态判定
+    # 字段类型逐个归一化：worker 是 LLM，null/错类型不能让 monitor_once 每轮抛异常
+    err = d.get("error")
     return Result(
-        task_id=d.get("task_id", task_id),
+        task_id=str(d.get("task_id") or task_id),
         status=_normalize_status(d.get("status")),
-        summary=d.get("summary", ""),
-        artifacts=list(d.get("artifacts", [])),
-        error=d.get("error"),
-        retryable=d.get("retryable"),   # 未声明则 None；worker 置 false 表示永久失败、勿重试
+        summary=str(d.get("summary") or ""),
+        artifacts=_as_str_list(d.get("artifacts")),
+        error=None if err is None else str(err),   # 保留 None＝未报错（board 按 is None 判断）
+        retryable=_as_retryable(d.get("retryable")),   # 未声明则 None；false 表示永久失败、勿重试
         reject_to=str(d.get("reject_to") or ""),   # status=reject 时：打回目标上游 task_id
         written_at=written_at,
     ), "ok"
