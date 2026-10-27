@@ -129,15 +129,19 @@ def sanitize_name(raw: str) -> str:
     超长时**不能从尾部直接截断**——调用方把唯一性后缀（如 :<task_id>:a<attempt>）放在尾部，
     直接 `[:32]` 会把它切掉，导致同一 agent 承接的多个并行任务名坍缩成同名 → agent_name_taken。
     这里改为「保留头部可读前缀 + 附加全名 hash」，让唯一性必然存活。
+
+    映射本身也有损（`.`/`:`/大写→`-`/小写、去首尾 `-`、补首字母 `a`）：短名同样会撞，
+    如 fan-out 子任务 `tpl.1` 与 plan 任务 `tpl-1`、`Build` 与 `build` → agent_name_taken。
+    故只要映射丢了信息（结果 != 原串）或超长，就附加原串 hash；本就合法的短名原样返回（幂等）。
     """
     s = re.sub(r"[^a-z0-9_-]", "-", raw.lower()).strip("-")
     if not s or not s[0].isalpha():
         s = "a" + s
-    if len(s) <= 32:
+    if s == raw and len(s) <= 32:
         return s
-    h = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:6]  # 全名 hash：随 task_id/attempt 变化
-    head = s[:25].rstrip("-")
-    return f"{head}-{h}"[:32]
+    h = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:6]  # 原串 hash：区分有损映射后同形的名字
+    head = s[:25].rstrip("-")                              # 25 + "-" + 6 = 32，必不超长
+    return f"{head}-{h}"
 
 
 def _pane_id_from(obj: Any) -> str | None:
