@@ -11,7 +11,7 @@ from collections.abc import Iterator
 
 import yaml
 
-from .models import AgentManifest, Runtime
+from .models import AgentManifest, Runtime, _as_list
 
 try:                        # POSIX 有 fcntl；Windows 无，降级为无锁（best-effort）
     import fcntl
@@ -234,9 +234,9 @@ def load_manifest(paths: Paths, name: str) -> AgentManifest:
         runtime=rt,
         workspace_path=ws.get("path", "./workspace"),
         worktree_base=ws.get("worktree_base", ""),
-        capabilities=list(raw.get("capabilities", [])),
-        skills=list(raw.get("skills", [])),
-        hidden_skills=list(raw.get("hidden_skills", [])),
+        capabilities=_as_list(raw.get("capabilities")),
+        skills=_as_list(raw.get("skills")),
+        hidden_skills=_as_list(raw.get("hidden_skills")),
         lifecycle=raw.get("lifecycle",
                           (team.get("defaults") or {}).get("lifecycle", "on-demand")),
         max_concurrent=int(raw.get("max_concurrent", 1)),
