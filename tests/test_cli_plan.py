@@ -102,6 +102,41 @@ def test_plan_rejects(proj, capsys, data, args, err):
     assert not Paths(proj).jobs_dir.exists() or not list(Paths(proj).jobs_dir.glob("*.json"))
 
 
+# 非法输入一律 `_die`（stderr 一行 + 退出码 2），不吐 traceback；raw=None 表示文件不存在
+@pytest.mark.parametrize("raw, err", [
+    (None, "读取失败"),
+    ('{"goal_id": "demo", "tasks": [', "不是合法 JSON"),
+    (json.dumps({"goal": "g", "tasks": [{"task_id": "a", "goal": "x"}]}), "缺少非空字符串 goal_id"),
+    (json.dumps({"goal_id": 5, "goal": "g", "tasks": [{"task_id": "a", "goal": "x"}]}), "缺少非空字符串 goal_id"),
+    (json.dumps({"goal_id": "demo", "goal": "g", "tasks": ["oops"]}), "须为 JSON 对象"),
+])
+def test_plan_bad_input_friendly_error(proj, capsys, raw, err):
+    f = proj / "p.json"
+    if raw is not None:
+        f.write_text(raw, encoding="utf-8")
+    with pytest.raises(SystemExit) as ei:
+        cli.main(["plan", str(f)])
+    assert ei.value.code == 2 and err in capsys.readouterr().err
+
+
+def test_plan_bad_vars_file(proj, capsys):
+    vf = proj / "v.json"
+    vf.write_text('{"topic": ', encoding="utf-8")
+    with pytest.raises(SystemExit) as ei:
+        cli.main(["plan", _plan(proj, _tpl()), "--vars-file", str(vf)])
+    assert ei.value.code == 2 and "--vars-file 不是合法 JSON" in capsys.readouterr().err
+
+
+def test_expand_bad_goals_file(proj, capsys):
+    data = _tpl(tasks=[{"task_id": "f", "goal": "第 {{shard}} 片", "capabilities": ["x"],
+                        "fanout": {"max_parallel": 2}}], goal="g")
+    assert cli.main(["plan", _plan(proj, data)]) == 0
+    capsys.readouterr()
+    with pytest.raises(SystemExit) as ei:
+        cli.main(["expand", "demo", "f", "--goals-file", str(proj / "missing.json")])
+    assert ei.value.code == 2 and "--goals-file 读取失败" in capsys.readouterr().err
+
+
 def test_plan_reload_purges_stale_signals_and_runtime(proj):
     p = Paths(proj)
     f = _plan(proj, _tpl())

@@ -11,7 +11,7 @@ import re
 import shutil
 import sys
 from pathlib import Path
-from typing import NoReturn
+from typing import Any, NoReturn
 
 from . import coordinator, registry, retro
 from .board import Board, DagError, job_lock
@@ -194,11 +194,21 @@ def _substitute(obj, values: dict[str, str]):
             lambda m: values.get(m.group(1), m.group(0)), s))
 
 
+def _load_json(path: str, what: str) -> Any:
+    """读 JSON 文件：缺失/不可读/非 UTF-8/JSON 截断等一律 `_die` 一行报错，不吐 traceback。"""
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except OSError as e:                 # 不存在 / 是目录 / 无权限
+        _die(f"{what} 读取失败：{path}（{e.strerror or e}）")
+    except ValueError as e:              # JSONDecodeError / UnicodeDecodeError 都是 ValueError 子类
+        _die(f"{what} 不是合法 JSON：{path}（{e}）")
+
+
 def _parse_vars(a) -> dict[str, str]:
     """合并 --vars-file(JSON 对象) 与 --var key=value；--var 优先，便于命令行临时覆写。"""
     values: dict[str, str] = {}
     if a.vars_file:
-        loaded = json.loads(Path(a.vars_file).read_text(encoding="utf-8"))
+        loaded = _load_json(a.vars_file, "--vars-file")
         if not isinstance(loaded, dict):
             _die(f"--vars-file 必须是 JSON 对象(key->value)，得到 {type(loaded).__name__}")
         values.update({str(k): str(v) for k, v in loaded.items()})
@@ -212,7 +222,7 @@ def _parse_vars(a) -> dict[str, str]:
 
 def cmd_plan(a) -> int:
     p = _paths()
-    data = json.loads(Path(a.file).read_text(encoding="utf-8"))
+    data = _load_json(a.file, "plan 文件")
     if not isinstance(data, dict):
         _die(f"plan 非法：{a.file} 顶层必须是 JSON 对象(plan)，得到 {type(data).__name__}——"
              f"vars/数据文件不是 plan，请用 --vars-file 传入、并放到 coordinator/plans/vars/（勿放 plans/ 根）")
@@ -234,7 +244,9 @@ def cmd_plan(a) -> int:
     values = _parse_vars(a)
     data = _substitute(data, values)
     # --as 覆写实例 id（先于漏填检查，模板 goal_id 本身若是 {{槽}} 也被实例名顶掉）。
-    gid = a.as_goal or data["goal_id"]
+    gid = a.as_goal or data.get("goal_id")
+    if not isinstance(gid, str) or not gid:  # 缺失/空/非字符串（如数字）都拒，免得后面撞 KeyError/TypeError
+        _die(f"plan 非法：{a.file} 缺少非空字符串 goal_id（得到 {gid!r}），请在 plan 里填写或用 --as 指定")
     if a.as_goal:
         data["goal_id"] = gid
     leftover = sorted(set(_collect_leftover(data)))
@@ -249,6 +261,9 @@ def cmd_plan(a) -> int:
         _die(f"plan 非法：goal_id {gid!r} 只能含字母/数字/.、_、-（会用作文件名与信号命名空间）")
     prev = Board.load(p, gid)
     raw = data["tasks"]
+    bad_items = [i for i, t in enumerate(raw) if not isinstance(t, dict)]
+    if bad_items:                            # 先于取 task_id：非对象项会让 t.get 抛 AttributeError
+        _die(f"plan 非法：tasks 每项须为 JSON 对象，第 {bad_items} 项不是（得到 {raw[bad_items[0]]!r}）")
     ids = [t.get("task_id") for t in raw]
     dupes = sorted({i for i in ids if i and ids.count(i) > 1})
     if dupes:
@@ -648,7 +663,7 @@ def cmd_expand(a) -> int:
     children_goals: list[str]
     children_expects: list[str] | None = None
     if a.goals_file:
-        loaded = json.loads(Path(a.goals_file).read_text(encoding="utf-8"))
+        loaded = _load_json(a.goals_file, "--goals-file")
         if not isinstance(loaded, list) or not loaded:
             _die("expand 失败：--goals-file 必须是非空 JSON 数组（每片一个 goal 字符串或对象）")
         children_goals, children_expects = [], []
