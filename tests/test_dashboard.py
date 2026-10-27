@@ -62,3 +62,31 @@ def test_tail_lines_longer_than_window(tmp_path):
 
 def test_tail_missing_file(tmp_path):
     assert _tail_events(_paths(tmp_path)) == []
+
+
+def test_tail_session_empty_means_default(tmp_path, monkeypatch):
+    """账本 session="" 表示分派方在 default session；dashboard 即使自身 HERDR_SESSION=team 也要按 default 读。"""
+    from agent_team import dashboard, herdr
+
+    p = _paths(tmp_path)
+    p.runtime_file.write_text(json.dumps({
+        "g:a": {"herdr_name": "w-a", "pane_id": "wT:pA", "session": ""},
+        "g:b": {"herdr_name": "w-b", "pane_id": "wT:pB", "session": "team"},
+        "g:c": {"herdr_name": "w-c", "pane_id": "wT:pC"},           # 旧条目：无 session 字段
+    }), encoding="utf-8")
+    calls = {}
+    monkeypatch.setattr(herdr, "read_agent",
+                        lambda name, lines=120, session=None, live=False: calls.setdefault(name, session) or "")
+    dashboard._tail_cache.clear()
+    dashboard.inflight_tails(p)
+    assert calls == {"w-a": "default", "w-b": "team", "w-c": None}
+    assert dashboard._session_for(p, "w-a") == "default"
+
+
+def test_current_session_defaults_to_named_default(monkeypatch):
+    from agent_team import herdr
+
+    monkeypatch.setattr(herdr, "_DEFAULT_SESSION", "")
+    assert herdr.current_session() == "default"
+    monkeypatch.setattr(herdr, "_DEFAULT_SESSION", "team")
+    assert herdr.current_session() == "team"

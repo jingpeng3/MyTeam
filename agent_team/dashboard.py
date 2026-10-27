@@ -78,8 +78,17 @@ def inflight_tails(paths: Paths, lines: int = 18) -> dict[str, str]:
             continue
         name = v.get("herdr_name") or ""
         if name and name not in out:
-            out[name] = agent_tail(name, lines, session=v.get("session") or "")
+            out[name] = agent_tail(name, lines, session=_entry_session(v))
     return out
+
+
+def _entry_session(v: dict[str, Any]) -> str:
+    """账本条目记录的 worker session。记了空串＝分派方当时没设 HERDR_SESSION，即 default session，
+    须显式按 default 读——不能回退到 dashboard 自己的 HERDR_SESSION（两者常不同）。
+    完全没有 session 字段的旧条目才回退到本进程环境（返回空串）。"""
+    if "session" not in v:
+        return ""
+    return v.get("session") or herdr.DEFAULT_SESSION_NAME
 
 
 def _session_for(paths: Paths, name: str) -> str:
@@ -87,7 +96,7 @@ def _session_for(paths: Paths, name: str) -> str:
     name，没有账本上下文，故在此补一次反查，让跨进程读取也命中对的 session。"""
     for v in _runtime(paths).values():
         if (v.get("herdr_name") or "") == name:
-            return v.get("session") or ""
+            return _entry_session(v)
     return ""
 
 

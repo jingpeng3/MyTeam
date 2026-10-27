@@ -41,12 +41,15 @@ def current_workspace_id() -> str:
 # session 并注入 `--session`，让 session 定位不再看脸吃环境；dashboard 再把每个 worker 分派时
 # 记录的 session 显式传进来（见 read_agent / coordinator._commit_dispatch）。
 _DEFAULT_SESSION = os.environ.get("HERDR_SESSION", "").strip()
+# herdr 未设 HERDR_SESSION 时连的 session 名；账本里要写成这个**显式名**而非空串——空串回放时会落到
+# dashboard 自己的 HERDR_SESSION（如 team），于是在 default session 里跑的 worker 全报 agent_not_found。
+DEFAULT_SESSION_NAME = "default"
 
 
 def current_session() -> str:
-    """本进程启动时继承的 herdr session 名（空=未设置，即 default session）。
+    """本进程实际所在的 herdr session 名（未设 HERDR_SESSION 即 default）。
     分派 worker 时记进 runtime 账本，供跨进程的 dashboard 回放定位同一 session。"""
-    return _DEFAULT_SESSION
+    return _DEFAULT_SESSION or DEFAULT_SESSION_NAME
 
 
 # herdr agent_status 的语义分组：存活推进中 / turn 已结束可接收输入 / 会话已死
