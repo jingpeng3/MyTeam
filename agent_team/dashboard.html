@@ -531,6 +531,224 @@ h4.gv-fold b{margin-left:auto; color:var(--dim); font-weight:400; font-size:10px
 .sk-hid span{font-family:var(--mono); font-size:11px; padding:3px 9px; border-radius:6px; border:1px dashed var(--line); color:var(--dim)}
 .sk-hid span.own{border-color:rgba(221,114,48,.45); color:var(--reject)}
 .am-note{font-size:11.5px; color:var(--dim); line-height:1.55}
+
+/* ---------- 办公室视图（进行中 Job 卡「⌂ 办公室」弹框）：Q 版 agent 在工位/待命区，交接与完成庆祝 ---------- */
+.job .open-ofc{font-family:var(--sans); font-size:10px; letter-spacing:.06em; color:var(--dim); background:transparent;
+  border:1px solid var(--line); border-radius:6px; padding:2px 8px; white-space:nowrap; cursor:pointer;
+  transition:color .15s,border-color .15s,background .15s}
+.job .open-ofc:hover{color:var(--run); border-color:rgba(37,99,235,.45); background:rgba(37,99,235,.06)}
+.ofc-ov{position:fixed; inset:0; z-index:150; display:flex; align-items:center; justify-content:center;
+  background:rgba(14,14,14,.4); padding:18px; animation:rise .22s both}
+.ofc{width:min(1360px,100%); max-height:96vh; display:flex; flex-direction:column; background:var(--panel);
+  border:1px solid var(--line); border-radius:14px; box-shadow:0 30px 80px -24px rgba(14,14,14,.5); overflow:hidden}
+.ofc-h{display:flex; align-items:center; gap:12px; padding:13px 18px; border-bottom:1px solid var(--line)}
+.ofc-h h3{margin:0; font-family:var(--serif); font-weight:600; font-size:20px; color:var(--ink)}
+.ofc-h h3 b{color:var(--line-bright); margin-right:8px}
+.ofc-h p{margin:3px 0 0; font-size:11.5px; color:var(--dim); max-width:80ch; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.ofc-h .sp{margin-left:auto}
+.ofc-b{display:grid; grid-template-columns:minmax(0,1fr) 288px; min-height:0; flex:1}
+.ofc-view{position:relative; overflow:hidden; background:var(--sunken)}
+.ofc-stage{position:absolute; left:0; top:0; width:960px; height:560px; transform-origin:0 0; overflow:hidden;
+  --o-wall:#f4e8d2; --o-wall2:#ead9bb; --o-base:#c9a982; --o-floor:#efe8da; --o-tile:#e5dccb; --o-wood:#e2c49c;
+  --o-plank:#d4b285; --o-rug:#f1c9b0; --o-sky1:#9fd3f5; --o-sky2:#dff2ff; --o-frame:#fffaf0; --o-desk:#c99a68;
+  --o-desk2:#e0b787; --o-sofa:#6f9fd8; --o-sofa2:#5a88c2; --o-ink:#3a3330}
+body.dark .ofc-stage{--o-wall:#2b2a36; --o-wall2:#25242f; --o-base:#4a4050; --o-floor:#23222b; --o-tile:#2a2933;
+  --o-wood:#3a3029; --o-plank:#33291f; --o-rug:#4a3540; --o-sky1:#141a3a; --o-sky2:#2c3466; --o-frame:#3b3a48;
+  --o-desk:#6e5238; --o-desk2:#8a6747; --o-sofa:#3d5f8f; --o-sofa2:#324f78; --o-ink:#e9e3d6}
+.ofc-stage svg.ofc-bg{position:absolute; left:0; top:0}
+.s-wall{fill:var(--o-wall)} .s-wall2{fill:var(--o-wall2)} .s-base{fill:var(--o-base)} .s-floor{fill:var(--o-floor)}
+.s-tile{stroke:var(--o-tile); stroke-width:1.5} .s-wood{fill:var(--o-wood)} .s-plank{stroke:var(--o-plank); stroke-width:1.5}
+.s-rug{fill:var(--o-rug); opacity:.75} .s-frame{fill:var(--o-frame)} .s-sofa{fill:var(--o-sofa)} .s-sofa2{fill:var(--o-sofa2)}
+.s-sun{fill:#ffd166} body.dark .s-sun{fill:#f1f0d0}
+.s-star{fill:#fff; display:none} body.dark .s-star{display:inline; animation:o-tw 2.4s ease-in-out infinite}
+@keyframes o-tw{50%{opacity:.25}}
+.s-cloud{fill:#fff; opacity:.92; animation:o-cloud 38s linear infinite} body.dark .s-cloud{opacity:.12}
+.s-cloud.c2{animation-duration:55s; animation-delay:-20s}
+@keyframes o-cloud{from{transform:translateX(-90px)}to{transform:translateX(230px)}}
+.s-steam{fill:none; stroke:#fff; stroke-width:2; stroke-linecap:round; opacity:0; animation:o-steam 2.6s ease-out infinite}
+.s-steam.t2{animation-delay:-1.3s}
+@keyframes o-steam{0%{opacity:0; transform:translateY(4px)}30%{opacity:.8}100%{opacity:0; transform:translateY(-12px)}}
+.s-sf{animation:o-sway 5s ease-in-out infinite}
+.s-leaf{transform-box:fill-box; transform-origin:50% 100%; animation:o-sway 4s ease-in-out infinite}
+@keyframes o-sway{50%{transform:rotate(4deg)}}
+/* 工位：桌面 + 显示器背面（agent 色指示灯）+ 前挡板名牌；z 序高于坐在其后的人物 */
+.odesk{position:absolute; width:112px; height:74px; pointer-events:none}
+.odesk svg{display:block}
+.odesk .plate{position:absolute; left:50%; top:40px; transform:translateX(-50%); max-width:92px; padding:1px 8px;
+  border-radius:6px; background:rgba(255,255,255,.9); color:#3a3330; border:1.5px solid var(--c,#ccc);
+  font:700 10px var(--sans); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; opacity:0; transition:opacity .35s}
+.odesk.on .plate{opacity:1}
+.odesk .mlg{fill:#8b93a1; transition:fill .3s}
+.odesk.on .mlg{fill:var(--c); animation:o-glow 1.4s ease-in-out infinite}
+@keyframes o-glow{50%{opacity:.35}}
+.odesk .bits{position:absolute; left:80px; top:-4px; width:30px; height:10px}
+.odesk .bits span{position:absolute; bottom:0; font:700 10px var(--mono); color:var(--c); opacity:0}
+.odesk.on.typing .bits span{animation:o-bit 2.1s ease-out infinite}
+.odesk .bits span:nth-child(2){left:10px; animation-delay:-.7s!important}
+.odesk .bits span:nth-child(3){left:20px; animation-delay:-1.4s!important}
+@keyframes o-bit{0%{opacity:0; transform:translateY(0)}20%{opacity:.9}100%{opacity:0; transform:translateY(-24px)}}
+/* 人物：外层 transform=脚底坐标（WAAPI 驱动走路），内层 .spr 承载 Q 版身体的各种状态动画 */
+.och{position:absolute; left:0; top:0; width:0; height:0; will-change:transform; cursor:pointer}
+.och .spr{position:absolute; left:-27px; top:-74px; width:54px; height:72px; transform-origin:50% 100%}
+.och .fl{position:absolute; inset:0; transition:transform .2s}
+.och.face-l .fl{transform:scaleX(-1)}
+.och svg{width:54px; height:72px; overflow:visible; display:block}
+.och .lg,.och .ar{transform-box:fill-box; transform-origin:50% 8%}
+.och .ey{transform-box:fill-box; transform-origin:center; animation:o-blink 4.6s infinite}
+.och .ey2{animation-delay:-.04s}
+@keyframes o-blink{0%,93%,100%{transform:scaleY(1)}96%{transform:scaleY(.12)}}
+/* 表情部件默认隐藏（侧栏小头像也适用），由人物状态类打开 */
+.ofc .mo-o,.ofc .mo-f,.ofc .sw,.ofc .rc{display:none}
+.och.idle .spr{animation:o-breathe 3s ease-in-out infinite}
+@keyframes o-breathe{50%{transform:scaleY(1.03)}}
+.och.sit .spr{top:-66px} .och.sit .lg{opacity:0}
+.och.walk .spr{animation:o-bob .34s ease-in-out infinite alternate}
+@keyframes o-bob{to{transform:translateY(-3px)}}
+.och.walk .lg1,.och.walk .ar2{animation:o-leg .34s ease-in-out infinite alternate}
+.och.walk .lg2,.och.walk .ar1{animation:o-leg .34s ease-in-out infinite alternate-reverse}
+@keyframes o-leg{from{transform:rotate(24deg)}to{transform:rotate(-24deg)}}
+.och.work .hd{transform-box:fill-box; transform-origin:50% 100%; animation:o-nod 1.6s ease-in-out infinite}
+@keyframes o-nod{50%{transform:rotate(3deg) translateY(1px)}}
+.och.work .ar{animation:o-type .2s ease-in-out infinite alternate}
+.och.work .ar2{animation-delay:-.1s}
+@keyframes o-type{to{transform:translateY(-3px) rotate(-8deg)}}
+.och.await .ar2{animation:o-wave .7s ease-in-out infinite alternate}
+@keyframes o-wave{from{transform:rotate(-150deg)}to{transform:rotate(-178deg)}}
+.och.cheer .spr{animation:o-jump .46s cubic-bezier(.3,.7,.4,1) infinite alternate}
+@keyframes o-jump{from{transform:translateY(0) scale(1.05,.93)}to{transform:translateY(-20px) scale(.96,1.05)}}
+.och.cheer .ar1{transform:rotate(155deg)} .och.cheer .ar2{transform:rotate(-155deg)}
+.och.cheer .mo-s{display:none} .och.cheer .mo-o{display:inline}
+.och.sad .mo-s{display:none} .och.sad .mo-f,.och.sad .sw,.och.sad .rc{display:inline}
+.och.sad .spr{animation:o-sag 1.8s ease-in-out infinite}
+@keyframes o-sag{50%{transform:translateY(2px) scaleY(.97)}}
+.och .rc{animation:o-float 1.6s ease-in-out infinite}
+.och .bub{position:absolute; bottom:80px; left:50%; transform:translateX(-50%); white-space:nowrap;
+  font:600 10.5px var(--sans); color:#3a3330; background:#fff; border:1.5px solid var(--c); border-radius:10px;
+  padding:2px 8px; box-shadow:0 3px 8px rgba(0,0,0,.14); pointer-events:none; animation:o-pop .3s both}
+.och .bub::after{content:""; position:absolute; left:50%; bottom:-5px; width:7px; height:7px; margin-left:-4px;
+  background:inherit; border-right:1.5px solid var(--c); border-bottom:1.5px solid var(--c); transform:rotate(45deg)}
+.och .bub b{color:var(--c)} .och .bub i{font-style:normal; color:#8a8378; font-family:var(--mono); margin-left:4px}
+.och .bub.await{--c:#e0a106; background:#fff6dc} .och .bub.fail{--c:#d64545; background:#ffecec}
+.och .bub.done{--c:#2f855a; background:#e8f7ee}
+@keyframes o-pop{from{opacity:0; transform:translate(-50%,6px) scale(.7)}to{opacity:1; transform:translate(-50%,0) scale(1)}}
+.och .nm{position:absolute; top:3px; left:50%; transform:translateX(-50%); white-space:nowrap; padding:0 6px;
+  border-radius:6px; font:700 9.5px var(--sans); color:#fff; background:var(--c); opacity:.92; pointer-events:none}
+.och .emo{position:absolute; bottom:66px; left:12px; font-size:12px; pointer-events:none; animation:o-float 2.6s ease-in-out infinite}
+@keyframes o-float{50%{transform:translateY(-5px)}}
+.och:hover .spr{filter:drop-shadow(0 0 4px var(--c))}
+/* 特效层：交接文件夹飞行 + 轨迹 + 标签、星星、飘字、彩带画布、完成横幅 */
+.ofc-trail{position:absolute; left:0; top:0; z-index:1900; pointer-events:none; overflow:visible}
+.ofc-trail path{fill:none; stroke-width:2.2; stroke-dasharray:5 6; stroke-linecap:round; animation:o-trail 2.6s ease-out forwards}
+@keyframes o-trail{0%{opacity:0; stroke-dashoffset:60}15%{opacity:.85}70%{opacity:.6}100%{opacity:0; stroke-dashoffset:0}}
+.ofc-fx{position:absolute; inset:0; z-index:2000; pointer-events:none}
+.ofld{position:absolute; left:0; top:0; width:26px; height:22px; margin:-11px 0 0 -13px; filter:drop-shadow(0 3px 4px rgba(0,0,0,.25))}
+.olbl{position:absolute; transform:translate(-50%,-50%); white-space:nowrap; padding:2px 9px; border-radius:9px;
+  font:700 10.5px var(--sans); color:#fff; background:var(--c); box-shadow:0 3px 8px rgba(0,0,0,.18); animation:o-lbl 2.6s ease-out forwards}
+@keyframes o-lbl{0%{opacity:0; margin-top:8px}15%{opacity:1; margin-top:0}75%{opacity:1}100%{opacity:0; margin-top:-8px}}
+.ostar,.ofloat{position:absolute; left:0; top:0; pointer-events:none; white-space:nowrap}
+.ostar{font-size:14px; margin:-8px 0 0 -6px}
+.ofloat{font:800 12px var(--sans); transform:translateX(-50%); text-shadow:0 1px 0 #fff,0 0 6px #fff}
+.ofc-cv{position:absolute; left:0; top:0; width:960px; height:560px; z-index:2100; pointer-events:none}
+.ofc-banner{position:absolute; left:50%; top:30px; z-index:2300; transform:translateX(-50%); white-space:nowrap;
+  padding:12px 30px; border-radius:16px; border:3px solid #fff; font:700 24px var(--serif); color:#5a3a00;
+  background:linear-gradient(180deg,#ffe07a,#ffb020); box-shadow:0 12px 30px -8px rgba(160,100,0,.55);
+  animation:o-drop .7s cubic-bezier(.2,1.6,.4,1) both, o-swing 2.4s .7s ease-in-out infinite}
+.ofc-banner small{display:block; font:600 12px var(--sans); text-align:center; opacity:.8; margin-top:2px}
+.ofc-banner.warn{color:#fff; background:linear-gradient(180deg,#f3a35c,#dd7230)}
+@keyframes o-drop{from{transform:translate(-50%,-140px)}to{transform:translate(-50%,0)}}
+@keyframes o-swing{50%{transform:translate(-50%,0) rotate(-1.5deg)}}
+.ofc-more{position:absolute; left:20px; top:156px; z-index:1800; padding:3px 10px; border-radius:8px; font:700 11px var(--sans);
+  color:#fff; background:rgba(37,99,235,.85)}
+.ofc-empty{position:absolute; left:316px; top:308px; transform:translate(-50%,-50%); z-index:5; padding:6px 14px; border-radius:10px;
+  font:600 12px var(--sans); color:var(--o-ink); background:rgba(255,255,255,.55); border:1px dashed rgba(0,0,0,.18)}
+body.dark .ofc-empty{background:rgba(0,0,0,.3); border-color:rgba(255,255,255,.18)}
+/* 右侧：进度 + 成员（类型/状态）+ 交接动态 */
+.ofc-side{border-left:1px solid var(--line); padding:14px 14px 20px; overflow:auto; background:var(--panel); min-height:0}
+.ofc-side h4{margin:14px 0 8px; font-size:10.5px; letter-spacing:.14em; text-transform:uppercase; color:var(--beam); font-weight:600}
+.ofc-side h4:first-child{margin-top:0}
+.ofc-prog{display:flex; height:8px; border-radius:5px; overflow:hidden; background:var(--sunken); border:1px solid var(--line)}
+.ofc-prog i{display:block; height:100%; transition:width .6s}
+.ofc-pn{display:flex; justify-content:space-between; font-size:11px; color:var(--dim); margin-top:6px}
+.ofc-pn b{color:var(--ink); font-variant-numeric:tabular-nums}
+.ofc-mem{display:flex; align-items:center; gap:9px; padding:6px 6px; border-radius:8px; cursor:pointer; transition:background .15s}
+.ofc-mem:hover{background:var(--sunken)}
+.ofc-mem .av{flex:none; width:28px; height:37px; overflow:hidden}
+.ofc-mem .av svg{width:28px; height:37px}
+.ofc-mem .mi{min-width:0; flex:1}
+.ofc-mem .mn{font-size:12.5px; font-weight:600; color:var(--ink); display:flex; align-items:center; gap:6px}
+.ofc-mem .mn span{font-size:9.5px; font-weight:700; color:#fff; background:var(--c); border-radius:5px; padding:0 5px}
+.ofc-mem .ms{font-size:10.5px; color:var(--dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; margin-top:1px}
+.ofc-mem .ms.w{color:var(--run)} .ofc-mem .ms.a{color:var(--await)}
+.ofc-feed{font-size:11px; line-height:1.5}
+.ofc-feed div{display:flex; gap:8px; padding:3px 0; border-bottom:1px dashed var(--line); animation:rise .35s both}
+.ofc-feed div:last-child{border-bottom:0}
+.ofc-feed .t{flex:none; color:var(--faint); font-family:var(--mono); font-size:10px; padding-top:1px}
+.ofc-feed .x{color:var(--soft); min-width:0; word-break:break-word}
+.ofc-feed .x.hand{color:var(--fan)} .ofc-feed .x.ok{color:var(--done)} .ofc-feed .x.bad{color:var(--fail)}
+.ofc-feed .x.rej{color:var(--reject)} .ofc-feed .x.ask{color:var(--await)} .ofc-feed .x.go{color:var(--run)}
+@media(max-width:900px){ .ofc-b{grid-template-columns:1fr} .ofc-side{border-left:0; border-top:1px solid var(--line); max-height:34vh} }
+/* 任务白板便利贴：按状态滑到 待办/进行/完成 列 */
+.owb{position:absolute; inset:0; z-index:3; pointer-events:none}
+.onote{pointer-events:auto; position:absolute; left:0; top:0; width:13px; height:10px; margin:-5px 0 0 -6.5px; border-radius:2px; z-index:5; cursor:pointer;
+  background:var(--c); box-shadow:0 1px 1.5px rgba(0,0,0,.2); transition:transform .9s cubic-bezier(.45,1.45,.5,1), background .4s, opacity .4s}
+.onote::after{content:""; position:absolute; left:3px; right:3px; top:3.5px; height:1.5px; border-radius:1px; background:rgba(255,255,255,.75)}
+.onote.pend{background:#e4ddcc} body.dark .onote.pend{background:#5d5a69}
+.onote.aw{animation:o-glow 1s ease-in-out infinite} .onote.bad{background:#e05a5a} .onote.skip{opacity:.4}
+.onote:hover{outline:1.5px solid #3a3330}
+.onote.sel{outline:2px solid #2563eb; z-index:6} .onote.up{outline:2px solid #2c9a8f} .onote.dn{outline:2px dashed #dd7230}
+.owb-more{position:absolute; transform:translate(-50%,-50%); font:800 8.5px var(--sans); color:#7a7067}
+/* 椅子 / 工作中显示器光晕 / 等人铃铛 / 选中工位 */
+.ochair{position:absolute; width:40px; height:40px; pointer-events:none}
+.odesk .glow{position:absolute; left:52px; top:-22px; width:78px; height:58px; border-radius:50%; opacity:0;
+  background:radial-gradient(closest-side, var(--c), transparent); transition:opacity .6s}
+.odesk.on.typing .glow{opacity:.42; animation:o-glow 3.2s ease-in-out infinite}
+.odesk .bell{position:absolute; left:100px; top:-14px; font-size:15px; display:none; transform-origin:50% 0}
+.odesk.ask .bell{display:block; animation:o-ring .42s ease-in-out infinite alternate}
+.odesk.ask .mlg{fill:#e0a106}
+@keyframes o-ring{from{transform:rotate(-22deg)}to{transform:rotate(22deg)}}
+.odesk.hl::after{content:""; position:absolute; left:-6px; right:-6px; top:-16px; bottom:-4px; border:2.5px dashed var(--c);
+  border-radius:16px; animation:o-spot 1.3s ease-in-out infinite}
+.och .ring{position:absolute; left:-34px; top:-13px; width:68px; height:22px; border-radius:50%; border:2.5px solid var(--c);
+  box-shadow:0 0 10px var(--c); pointer-events:none; animation:o-spot 1.3s ease-in-out infinite}
+@keyframes o-spot{50%{transform:scale(1.12); opacity:.5}}
+/* 交接接住 / 被点到：举手蹦一下 */
+.och.catch .ar{animation:none!important} .och.catch .ar1{transform:rotate(150deg)} .och.catch .ar2{transform:rotate(-150deg)}
+.och.catch .spr{animation:o-hop .26s ease-out 4 alternate}
+@keyframes o-hop{to{transform:translateY(-7px)}}
+/* 打回印章 / 合影闪光 */
+.ostamp{position:absolute; z-index:2200; padding:2px 10px; border:3px solid #d64545; border-radius:8px; color:#d64545; white-space:nowrap;
+  background:rgba(255,255,255,.8); font:900 17px var(--serif); letter-spacing:.12em; pointer-events:none; animation:o-stamp 2.8s both}
+@keyframes o-stamp{0%{opacity:0; transform:translate(-50%,-50%) rotate(-14deg) scale(2.6)}12%{opacity:1; transform:translate(-50%,-50%) rotate(-14deg) scale(.9)}
+  18%,82%{opacity:1; transform:translate(-50%,-50%) rotate(-14deg) scale(1)}100%{opacity:0; transform:translate(-50%,-50%) rotate(-14deg) scale(1)}}
+.ofc-flash{position:absolute; inset:0; z-index:2500; background:#fff; pointer-events:none; animation:o-flash .8s ease-out forwards}
+@keyframes o-flash{from{opacity:.95}to{opacity:0}}
+/* 夜晚：窗外星星 + 月亮 + 淡云（按本地时间切换，见 oSky） */
+.ofc-stage.night .s-star{display:inline; animation:o-tw 2.4s ease-in-out infinite}
+.ofc-stage.night .s-sun{fill:#f1f0d0} .ofc-stage.night .s-cloud{opacity:.14}
+/* 任务卡 / agent 卡：点工位上的动物、便利贴、交接动态或成员行弹出（在舞台坐标系内） */
+.ocard{position:absolute; z-index:2400; width:240px; padding:11px 13px 12px; border-radius:12px; background:#fffdf8; color:#3a3330;
+  border:2px solid var(--c); box-shadow:0 14px 34px -12px rgba(0,0,0,.4); font:12px/1.45 var(--sans); animation:o-cpop .2s both}
+body.dark .ocard{background:#24232c; color:#ece6da}
+@keyframes o-cpop{from{opacity:0; transform:translateY(6px) scale(.96)}to{opacity:1; transform:none}}
+.ocard h5{margin:0; padding-right:18px; font:700 14px var(--sans); display:flex; align-items:center; gap:6px; word-break:break-all}
+.ocard .cx{position:absolute; right:7px; top:5px; width:20px; height:20px; border:0; border-radius:6px; background:transparent;
+  color:inherit; opacity:.55; cursor:pointer; font-size:13px} .ocard .cx:hover{opacity:1; background:rgba(0,0,0,.06)}
+.ocard .chip2{flex:none; font-size:9.5px; font-weight:700; color:#fff; background:var(--sc,#888); border-radius:5px; padding:1px 6px}
+.ocard h5 .av{flex:none; width:26px; height:35px; margin:-4px 0 -4px} .ocard h5 .av svg{width:26px; height:35px}
+.ocard .sub{font-size:11px; opacity:.7; margin-top:2px}
+.ocard .kv{display:flex; gap:7px; margin-top:6px; font-size:11px} .ocard .kv>b{flex:none; width:34px; opacity:.6; font-weight:600}
+.ocard .kv>span{min-width:0; word-break:break-word}
+.ocard .gl{margin-top:7px; padding:6px 8px; border-radius:7px; background:rgba(0,0,0,.045); font-size:11px; max-height:70px; overflow:auto;
+  white-space:pre-wrap; word-break:break-word} body.dark .ocard .gl{background:rgba(255,255,255,.06)}
+.ocard .gl.aw{background:rgba(224,161,6,.14)} .ocard .gl.bad{background:rgba(214,69,69,.12)} .ocard .gl.rej{background:rgba(221,114,48,.13)}
+.ocard .dep{display:inline-flex; align-items:center; gap:4px; margin:0 8px 2px 0; cursor:pointer; text-decoration:underline dotted; text-underline-offset:2px}
+.ocard .dep i{width:7px; height:7px; border-radius:2px; background:var(--sc,#999); flex:none}
+.ocard .bts{display:flex; gap:6px; margin-top:10px; flex-wrap:wrap}
+.ocard .bts button{font:600 11px var(--sans); padding:4px 9px; border-radius:7px; cursor:pointer; color:inherit;
+  background:rgba(0,0,0,.05); border:1px solid rgba(0,0,0,.14)} .ocard .bts button:hover{border-color:var(--c)}
+body.dark .ocard .bts button{background:rgba(255,255,255,.06); border-color:rgba(255,255,255,.18)}
+.ofc-feed div[data-tid]{cursor:pointer} .ofc-feed div[data-tid]:hover .x{text-decoration:underline dotted}
+@media(prefers-reduced-motion:reduce){ .ofc-stage *{animation-duration:.01ms!important; animation-iteration-count:1!important} }
 </style>
 </head>
 <body>
@@ -703,9 +921,11 @@ function jobCard(j){
     ? `<span class="badge human" title="${esc(awReason||'worker 停下等待人工决策')}">🙋 待人决策${aw.length>1?' ×'+aw.length:''}</span>`
     : '';
   const pipe = j.tasks.map(chip).join('');
+  // 进行中的 Job 才有「办公室」入口：Q 版动画看谁在干活、交接与完成庆祝
+  const ofcBtn = j.complete ? '' : `<button class="open-ofc" onclick="event.stopPropagation();openOffice('${esc(j.goal_id)}')" title="打开办公室动画视图">⌂ 办公室</button>`;
   return `<div class="job ${j.complete?'done':''}" onclick="openDag('${esc(j.goal_id)}')" title="点开查看 DAG 依赖图与产物">
     <div class="jrow"><div class="gid"><b>▹</b>${esc(j.goal_id)}</div>
-      <div style="display:flex;align-items:center;gap:10px">${humanBadge}${rejBadge}${badge}<span class="open-dag">DAG ▧</span></div></div>
+      <div style="display:flex;align-items:center;gap:10px">${humanBadge}${rejBadge}${badge}${ofcBtn}<span class="open-dag">DAG ▧</span></div></div>
     <div class="goal">${esc(j.goal||'—')}</div>
     <div class="pipe">${pipe}</div></div>`;
 }
@@ -1500,6 +1720,926 @@ function detailPanel(job){
     <div class="det-sec"><h4>生成物 · Artifacts</h4>${arts}</div>
     ${expect}${outcome}`;
 }
+/* ==================== 办公室视图：进行中 Job 的 Q 版动画 ====================
+   舞台固定 960×560 逻辑坐标、按容器等比缩放。人物 = 一个在跑 worker（同一 agent 并发 N 个就 N 个分身）；
+   没活的 agent 在右侧待命区闲逛。每 2.5s 拉 /api/job，与上一快照比对产出：入座/离座、任务完成小庆祝、
+   上游→下游的交接文件夹、打回、Job 收敛大庆祝。走路用 WAAPI 只动 transform，保证流畅。 */
+const OW=960, OH=560, AISLE=318, O_SPEED=120, LOUNGE_IN={x:650,y:AISLE}, SHELF={x:540,y:84};
+const DESKS=[]; [235,430].forEach(y=>[90,240,390,540].forEach(x=>DESKS.push({x,y})));
+const seatOf=i=>({x:DESKS[i].x-10, y:DESKS[i].y+8});   // 略偏左，别让显示器背面挡住脸
+const deskTop=i=>({x:DESKS[i].x+35, y:DESKS[i].y-20});
+const O_SPOTS=[[712,470,'sofa'],[752,470,'sofa'],[792,470,'sofa'],[832,470,'sofa'],[884,240,'coffee'],[842,246,'coffee'],
+  [700,300,'rug'],[764,284,'rug'],[828,298,'rug'],[892,322,'rug'],[734,364,'rug'],[802,378,'rug'],[876,398,'rug'],
+  [690,418,'rug'],[914,446,'rug'],[910,506,'rug']].map(([x,y,k])=>({x,y,k}));
+const O_COLORS=['#ff8a65','#4fc3f7','#81c784','#ba68c8','#ffb74d','#f06292','#4db6ac','#9575cd','#e57373','#64b5f6','#a1c45a','#e6b422'];
+// 角色类型 → 动物：按 agent 名/角色/能力关键词识别（先命中先用）；识别不出按名字哈希从「通用」动物里挑
+const O_KINDS=[['tiger','构建',/\bgen\b|-gen|builder|proto|scaffold|生成|构建|原型/],
+  ['cat','开发',/code|dev|impl|build|coder|engineer|restyl|开发|编码|实现|前端|后端|改造/],
+  ['owl','评审',/review|audit|critic|评审|审查|审计/],['dog','测试',/test|qa|verif|check|测试|校验|验收/],
+  ['fox','调研',/research|crawl|search|explor|scout|fetch|collect|调研|爬|搜索|研究|采集|收集/],
+  ['rabbit','写作',/writ|doc|report|copy|summar|文档|报告|撰写|总结/],
+  ['panda','设计',/design|\bui\b|\bux\b|\bart\b|style|设计|美术|视觉|风格/],
+  ['lion','规划',/plan|lead|coord|\bpm\b|arch|clarif|规划|拆解|架构|统筹|澄清/],
+  ['raccoon','分析',/retro|analy|data|insight|复盘|分析|数据|洞察/],
+  ['bear','运维',/ops|deploy|release|infra|publish|发布|部署|运维/],
+  ['koala','操作',/operat|browser|\bdb\b|query|sql|handler|操作|查询|处理/]];
+const O_SPARE=['penguin','pig','mouse','hamster'];
+function oHash(s){ let h=2166136261; for(const c of String(s)) h=Math.imul(h^c.charCodeAt(0),16777619); return h>>>0; }
+function oLook(a){
+  const h=oHash(a.name), txt=(a.name+' '+(a.role||'')+' '+(a.capabilities||[]).join(' ')).toLowerCase();
+  const k=O_KINDS.find(x=>x[2].test(txt));
+  // 无符号右移：h 是 uint32，有符号 >> 会得到负数、取模后下标越界
+  return {c:O_COLORS[h%O_COLORS.length], animal:k ? k[0] : O_SPARE[(h>>>8)%O_SPARE.length], kind:k ? k[1] : '通用'};
+}
+/* 动物头部部件（头圆心 27,26 半径 18）：back=头后（耳朵/鬃毛），mark=脸上花纹（画在眼睛前），
+   nose=鼻子/喙，top=画在最上层（胡须），eye=眼睛色（眼周是深色时用白眼），paw=手色 */
+const O_DK='#2d2a32';
+const oPair=(f)=>f(1)+f(-1);   // 左右对称部件：f(1)=左、f(-1)=右（按 x=27 镜像）
+const oMx=(x,d)=>27+(x-27)*d;
+const O_WHISK=c=>`<path d="M7 31 h8 M7.5 35 l7.5 -1.6 M47 31 h-8 M46.5 35 l-7.5 -1.6" stroke="${c}" stroke-width="1" stroke-linecap="round"/>`;
+const O_NOSE=`<ellipse cx="27" cy="31.6" rx="2.3" ry="1.7" fill="${O_DK}"/>`;
+const O_ANIMALS={
+  cat:{fur:'#4a4655', eye:'#ffd54a', back:oPair(d=>`<path d="M${oMx(11,d)} 18 L${oMx(13,d)} 3 L${oMx(24,d)} 12 Z" fill="#4a4655"/><path d="M${oMx(14,d)} 15 L${oMx(15,d)} 7 L${oMx(21,d)} 12 Z" fill="#ffb3b3"/>`),
+    mark:`<ellipse cx="27" cy="34" rx="7" ry="5" fill="#6e6a7a"/>`,
+    nose:`<path d="M25.3 31 h3.4 l-1.7 2 z" fill="#ff8fa3"/>`, top:O_WHISK('#d8d4e0')},
+  owl:{fur:'#a47551', paw:'#e8c79c', back:oPair(d=>`<path d="M${oMx(10,d)} 17 L${oMx(8,d)} 4 L${oMx(20,d)} 11 Z" fill="#a47551"/>`),
+    mark:`<path d="M27 15 C20 9 9 14 10 27 C11 38 20 43 27 43 C34 43 43 38 44 27 C45 14 34 9 27 15Z" fill="#f3dfc4"/>`
+      +oPair(d=>`<circle cx="${oMx(20.5,d)}" cy="27.5" r="6.3" fill="#fff" stroke="#d9b98f" stroke-width="1.4"/>`),
+    nose:`<path d="M24.6 30.6 L29.4 30.6 L27 35 Z" fill="#f2a516"/>`},
+  dog:{fur:'#e3bf91', mark:oPair(d=>`<ellipse cx="${oMx(10.5,d)}" cy="26" rx="5.5" ry="11.5" fill="#8b5a3c" transform="rotate(${14*d} ${oMx(10.5,d)} 26)"/>`)
+      +`<ellipse cx="34" cy="27.5" rx="5.2" ry="5.6" fill="#c99868"/><ellipse cx="27" cy="34.5" rx="8" ry="5.8" fill="#f8e9d4"/>`,
+    nose:`<ellipse cx="27" cy="31.6" rx="2.8" ry="2" fill="${O_DK}"/>`},
+  fox:{fur:'#ee7d3a', back:oPair(d=>`<path d="M${oMx(10,d)} 20 L${oMx(12,d)} 1 L${oMx(25,d)} 12 Z" fill="#ee7d3a"/><path d="M${oMx(11.4,d)} 7 L${oMx(12,d)} 1 L${oMx(16.6,d)} 4.8 Z" fill="#3b2a24"/><path d="M${oMx(14,d)} 16 L${oMx(14,d)} 8 L${oMx(21,d)} 12.5 Z" fill="#fff0e0"/>`),
+    mark:`<path d="M9 28 C14 29.5 21 31 27 36.5 C33 31 40 29.5 45 28 C44 38 36 44 27 44 C18 44 10 38 9 28Z" fill="#fff6ec"/>`},
+  rabbit:{fur:'#f4efe9', paw:'#f4efe9', back:oPair(d=>`<ellipse cx="${oMx(19.5,d)}" cy="3" rx="5" ry="14" fill="#f4efe9" stroke="rgba(0,0,0,.1)" transform="rotate(${-10*d} ${oMx(19.5,d)} 3)"/><ellipse cx="${oMx(19.5,d)}" cy="4" rx="2.3" ry="10" fill="#ffc4cf" transform="rotate(${-10*d} ${oMx(19.5,d)} 3)"/>`),
+    nose:`<ellipse cx="27" cy="31.6" rx="1.9" ry="1.4" fill="#ff8fa3"/><path d="M25.6 35.6 h2.8 v2.2 h-2.8 z" fill="#fff" stroke="#e7d9cc" stroke-width=".6"/>`},
+  panda:{fur:'#fbfbf8', paw:O_DK, eye:'#fff', back:oPair(d=>`<circle cx="${oMx(12,d)}" cy="11.5" r="6.5" fill="${O_DK}"/>`),
+    mark:oPair(d=>`<ellipse cx="${oMx(20.3,d)}" cy="28.3" rx="5" ry="6.2" fill="${O_DK}" transform="rotate(${22*d} ${oMx(20.3,d)} 28.3)"/>`)},
+  lion:{fur:'#f5c451', back:(()=>{ let m=''; for(let i=0;i<14;i++){ const a=i/14*Math.PI*2;
+      m+=`<circle cx="${(27+Math.cos(a)*19).toFixed(1)}" cy="${(26+Math.sin(a)*19).toFixed(1)}" r="7" fill="#d9822b"/>`; }
+      return m+oPair(d=>`<circle cx="${oMx(13,d)}" cy="11.5" r="5" fill="#f5c451"/><circle cx="${oMx(13,d)}" cy="11.5" r="2.5" fill="#e9a23b"/>`); })(),
+    mark:`<ellipse cx="27" cy="34" rx="7.5" ry="5.3" fill="#fff0c8"/>`, top:O_WHISK('#b9772a')},
+  raccoon:{fur:'#a3a3ad', eye:'#fff', back:oPair(d=>`<path d="M${oMx(10,d)} 17 L${oMx(12,d)} 4 L${oMx(22,d)} 11 Z" fill="#a3a3ad"/><path d="M${oMx(12.5,d)} 13.5 L${oMx(13.5,d)} 7.5 L${oMx(19,d)} 11 Z" fill="#4a4752"/>`),
+    mark:`<path d="M27 10 v7" stroke="#4a4752" stroke-width="3" stroke-linecap="round"/><path d="M9 27 C12 21 22 22 27 26 C32 22 42 21 45 27 C42 33 33 33 27 30 C21 33 12 33 9 27Z" fill="#4a4752"/><ellipse cx="27" cy="35" rx="7" ry="4.8" fill="#f1f0f4"/>`},
+  bear:{fur:'#a8754c', back:oPair(d=>`<circle cx="${oMx(12,d)}" cy="11.5" r="6.5" fill="#a8754c"/><circle cx="${oMx(12,d)}" cy="11.5" r="3.3" fill="#e9cfa8"/>`),
+    mark:`<ellipse cx="27" cy="34.2" rx="7.5" ry="5.6" fill="#e9cfa8"/>`, nose:`<ellipse cx="27" cy="31.4" rx="3" ry="2.1" fill="${O_DK}"/>`},
+  koala:{fur:'#a9adb8', back:oPair(d=>`<circle cx="${oMx(9.5,d)}" cy="16" r="9" fill="#a9adb8"/><circle cx="${oMx(9.5,d)}" cy="16" r="5.2" fill="#eceaf0"/>`),
+    nose:`<ellipse cx="27" cy="31" rx="3.4" ry="3.6" fill="#3b3940"/>`},
+  tiger:{fur:'#f4a03c', back:oPair(d=>`<circle cx="${oMx(12.5,d)}" cy="11" r="5.5" fill="#f4a03c"/><circle cx="${oMx(12.5,d)}" cy="11" r="2.7" fill="#fff4e4"/>`),
+    mark:`<path d="M27 8.5 v5 M21.5 10 l1.5 4 M32.5 10 l-1.5 4" stroke="#3b2a24" stroke-width="2.2" stroke-linecap="round"/>`
+      +oPair(d=>`<path d="M${oMx(9.5,d)} 24 h4.5 M${oMx(9.5,d)} 29 h3.5" stroke="#3b2a24" stroke-width="2" stroke-linecap="round"/>`)
+      +`<ellipse cx="27" cy="34.3" rx="8" ry="5.6" fill="#fff4e4"/>`},
+  penguin:{fur:'#34405a', paw:'#f2a516', mark:`<path d="M27 17 C22 11 11 15 11 27 C11 37 19 43 27 43 C35 43 43 37 43 27 C43 15 32 11 27 17Z" fill="#fff"/>`,
+    nose:`<path d="M24.6 30.6 L29.4 30.6 L27 34.2 Z" fill="#f2a516"/>`},
+  pig:{fur:'#ffbfca', back:oPair(d=>`<path d="M${oMx(10,d)} 15 L${oMx(12,d)} 4 L${oMx(21,d)} 10 Z" fill="#ff9fb1"/>`),
+    nose:`<ellipse cx="27" cy="32" rx="4.6" ry="3.3" fill="#ff8ea3"/><ellipse cx="25.4" cy="32" rx=".9" ry="1.2" fill="#c2566c"/><ellipse cx="28.6" cy="32" rx=".9" ry="1.2" fill="#c2566c"/>`},
+  mouse:{fur:'#bdbac6', back:oPair(d=>`<circle cx="${oMx(10,d)}" cy="11" r="8.5" fill="#bdbac6"/><circle cx="${oMx(10,d)}" cy="11" r="5" fill="#ffc4cf"/>`),
+    nose:`<ellipse cx="27" cy="31.6" rx="2" ry="1.5" fill="#ff8fa3"/>`, top:O_WHISK('#7d7a86')},
+  hamster:{fur:'#f0b878', back:oPair(d=>`<circle cx="${oMx(13,d)}" cy="11" r="4.6" fill="#f0b878"/><circle cx="${oMx(13,d)}" cy="11" r="2.4" fill="#ffc4cf"/>`),
+    mark:`<path d="M10 30 C14 29 20 30 27 27 C34 30 40 29 44 30 C43 39 36 44 27 44 C18 44 11 39 10 30Z" fill="#fff6ea"/>`,
+    nose:`<ellipse cx="27" cy="31.3" rx="1.8" ry="1.3" fill="#c2566c"/>`},
+};
+/* 每个 agent 一种动物（同一办公室内不重复）：先按类型给首选动物，首选已被占的按名字哈希
+   从剩余动物里挑，并尽量避开本轮其它 agent 的首选。按名字排序分配，重开办公室结果一致；
+   已分配过的不变，动物用完（>15 个 agent）才允许重复。 */
+function oAssignLooks(O, list){
+  const used=new Set(Object.values(O.agents).map(A=>A.look.animal));
+  const fresh=list.filter(a=>!O.agents[a.name]).sort((x,y)=>x.name.localeCompare(y.name)).map(a=>({a, L:oLook(a)}));
+  const wanted=new Set(fresh.map(x=>x.L.animal)), late=[], all=Object.keys(O_ANIMALS);
+  fresh.forEach(x=>{ if(used.has(x.L.animal)) late.push(x); else used.add(x.L.animal); });
+  late.forEach(x=>{
+    const free=all.filter(k=>!used.has(k)), pool=free.filter(k=>!wanted.has(k)), pick=pool.length ? pool : free;
+    if(pick.length){ x.L.animal=pick[oHash(x.a.name)%pick.length]; used.add(x.L.animal); }
+  });
+  fresh.forEach(x=>{ O.agents[x.a.name]={name:x.a.name, role:x.a.role||'', look:x.L}; });
+}
+function oAvatar(L){
+  const A=O_ANIMALS[L.animal]||O_ANIMALS.bear, c=L.c, paw=A.paw||A.fur, ey=A.eye||O_DK, hi=A.eye?O_DK:'#fff';
+  return `<svg viewBox="0 0 54 72" aria-hidden="true">
+    <ellipse cx="27" cy="71" rx="14" ry="3" fill="rgba(0,0,0,.16)"/>
+    <rect class="lg lg1" x="19" y="58" width="7" height="12" rx="3" fill="#4b4b5c"/>
+    <rect class="lg lg2" x="28" y="58" width="7" height="12" rx="3" fill="#4b4b5c"/>
+    <g class="ar ar1"><rect x="9.5" y="44" width="7" height="15" rx="3.5" fill="${c}"/><circle cx="13" cy="59" r="3.3" fill="${paw}"/></g>
+    <g class="ar ar2"><rect x="37.5" y="44" width="7" height="15" rx="3.5" fill="${c}"/><circle cx="41" cy="59" r="3.3" fill="${paw}"/></g>
+    <rect x="15" y="42" width="24" height="20" rx="8" fill="${c}"/>
+    <path d="M22 43 L27 48.5 L32 43" fill="none" stroke="#fff" stroke-width="2" stroke-linejoin="round" opacity=".8"/>
+    <g class="hd">
+      ${A.back||''}
+      <circle cx="27" cy="26" r="18" fill="${A.fur}" stroke="rgba(0,0,0,.1)" stroke-width="1"/>
+      ${A.mark||''}
+      <ellipse class="ey" cx="20.5" cy="28" rx="2.4" ry="2.9" fill="${ey}"/><ellipse class="ey ey2" cx="33.5" cy="28" rx="2.4" ry="2.9" fill="${ey}"/>
+      <circle cx="21.3" cy="27" r=".9" fill="${hi}"/><circle cx="34.3" cy="27" r=".9" fill="${hi}"/>
+      <circle cx="14.5" cy="34" r="2.7" fill="#ff8f9a" opacity=".45"/><circle cx="39.5" cy="34" r="2.7" fill="#ff8f9a" opacity=".45"/>
+      ${A.nose||O_NOSE}
+      <path class="mo-s" d="M24 35 Q27 38 30 35" fill="none" stroke="#7a3b2e" stroke-width="1.5" stroke-linecap="round"/>
+      <ellipse class="mo-o" cx="27" cy="36.6" rx="3" ry="2.6" fill="#7a3b2e"/>
+      <path class="mo-f" d="M24 37.6 Q27 34.8 30 37.6" fill="none" stroke="#7a3b2e" stroke-width="1.5" stroke-linecap="round"/>
+      <path class="sw" d="M42 17 q2.8 4.4 0 6 q-2.8 -1.6 0 -6 z" fill="#7cc4ff"/>
+      ${A.top||''}
+    </g>
+    <g class="rc"><ellipse cx="27" cy="-14" rx="13" ry="6" fill="#9aa3ad"/><circle cx="20" cy="-16" r="6" fill="#9aa3ad"/>
+      <path d="M21 -7 l-2 5 M27 -7 l-2 5 M33 -7 l-2 5" stroke="#7cc4ff" stroke-width="1.5" stroke-linecap="round"/></g>
+  </svg>`;
+}
+/* 墙上的向日葵挂画：画框 + 花瓶 + 三朵向日葵（花盘轻轻摇） */
+function oSunflowers(){
+  const flower=(x,y,r,d)=>{ let p='';
+    for(let i=0;i<14;i++){ const a=i*360/14; p+=`<ellipse cx="${x}" cy="${y-r*1.05}" rx="${r*.32}" ry="${r*.62}" fill="${i%2?'#ffc928':'#ffb300'}" transform="rotate(${a} ${x} ${y})"/>`; }
+    return `<g class="s-sf" style="transform-origin:${x}px ${y+r*3}px; animation-delay:${d}s">${p}
+      <circle cx="${x}" cy="${y}" r="${r*.62}" fill="#7a4a1f"/><circle cx="${x}" cy="${y}" r="${r*.62}" fill="none" stroke="#5b3413" stroke-width="1" stroke-dasharray="1.5 2"/></g>`; };
+  return `<rect x="676" y="16" width="168" height="104" rx="5" class="s-frame" stroke="var(--o-desk)" stroke-width="4"/>
+    <rect x="684" y="24" width="152" height="88" rx="2" fill="#bfe1f2"/><rect x="684" y="84" width="152" height="28" fill="#e9d5a8"/>
+    <path d="M736 62 C734 74 744 80 740 98 M760 52 C760 70 760 82 760 98 M784 64 C786 76 776 82 780 98" fill="none" stroke="#4f9a4c" stroke-width="2.4"/>
+    <path d="M738 80 q-12 -2 -16 -10 q12 0 16 10 Z M761 76 q11 -4 16 -12 q-13 1 -16 12 Z M781 82 q12 -2 15 -10 q-12 0 -15 10 Z" fill="#62b35a"/>
+    ${flower(736,60,8,-.6)}${flower(760,48,9.5,0)}${flower(784,62,8,-1.3)}
+    <path d="M742 92 h36 l-4 20 h-28 Z" fill="#5f8fd0"/><rect x="740" y="89" width="40" height="6" rx="3" fill="#7aa6e2"/>`;
+}
+/* 任务白板（墙上第二块）：三列 = 待办 / 进行中 / 已结束，每个任务一张便利贴（见 oBoard） */
+const WB={x:226, cw:46};
+const oNotePos=(k,i)=>({x:WB.x+k*WB.cw+8+(i%3)*14.5, y:44+Math.floor(i/3)*11});
+function oBoardSvg(){
+  const g=['○','▶','✓'], c=['#9a8f7f','#2563eb','#2f855a'];
+  return `<rect x="218" y="16" width="154" height="88" rx="5" fill="#b9bfc9"/><rect x="222" y="20" width="146" height="80" rx="3" fill="#fbfcfd"/>
+    ${[1,2].map(i=>`<path d="M${WB.x+WB.cw*i} 26 V96" stroke="#e1e5ea" stroke-width="1.2"/>`).join('')}
+    ${g.map((x,i)=>`<text x="${WB.x+WB.cw*i+WB.cw/2}" y="35" text-anchor="middle" style="font:800 9px var(--sans); fill:${c[i]}">${x}</text>`).join('')}
+    <rect x="250" y="102" width="90" height="5" rx="2" fill="#9aa1ab"/><rect x="262" y="98" width="14" height="4" rx="1.5" fill="#e5534b"/>
+    <rect x="282" y="98" width="14" height="4" rx="1.5" fill="#2563eb"/>`;
+}
+function oBgSvg(){
+  let tiles='', planks='';
+  for(let x=48;x<632;x+=48) tiles+=`<path class="s-tile" d="M${x} 148 V560"/>`;
+  for(let y=196;y<560;y+=48) tiles+=`<path class="s-tile" d="M0 ${y} H632"/>`;
+  for(let y=174;y<560;y+=26) planks+=`<path class="s-plank" d="M632 ${y} H960"/>`;
+  const win=(x,i)=>`<clipPath id="oWin${i}"><rect x="${x+6}" y="24" width="138" height="70" rx="3"/></clipPath>
+    <rect class="s-frame" x="${x}" y="18" width="150" height="82" rx="6"/>
+    <g clip-path="url(#oWin${i})"><rect x="${x+6}" y="24" width="138" height="70" fill="url(#oSky)"/>
+      ${i?'':`<circle class="s-sun" cx="${x+42}" cy="46" r="11"/>`}
+      <circle class="s-star" cx="${x+30}" cy="36" r="1.3"/><circle class="s-star" cx="${x+96}" cy="44" r="1.1" style="animation-delay:-1s"/>
+      <circle class="s-star" cx="${x+120}" cy="32" r="1.4" style="animation-delay:-.4s"/>
+      <g class="s-cloud${i?' c2':''}"><ellipse cx="${x+20}" cy="${62-i*10}" rx="18" ry="7"/><ellipse cx="${x+32}" cy="${57-i*10}" rx="11" ry="8"/></g></g>
+    <path d="M${x+75} 24 V94 M${x+6} 59 H${x+144}" stroke="var(--o-base)" stroke-width="3"/>`;
+  let ticks=''; for(let i=0;i<12;i++){ const a=i*Math.PI/6; ticks+=`<circle cx="${410+Math.sin(a)*21}" cy="${58-Math.cos(a)*21}" r="${i%3?1:1.8}" fill="var(--o-ink)"/>`; }
+  const plant=(x,y,s)=>`<g transform="translate(${x},${y}) scale(${s})"><path class="s-leaf" d="M0 -8 C-16 -22 -14 -40 -2 -46 C-4 -30 2 -20 0 -8Z" fill="#5fae6a"/>
+    <path class="s-leaf" style="animation-delay:-1.6s" d="M2 -8 C18 -24 20 -38 8 -48 C8 -32 2 -22 2 -8Z" fill="#79c584"/>
+    <path class="s-leaf" style="animation-delay:-.8s" d="M1 -8 C-4 -30 2 -50 4 -56 C10 -40 6 -24 1 -8Z" fill="#4c9a58"/>
+    <path d="M-11 -10 H13 L10 10 H-8 Z" fill="#d9825b"/><rect x="-12" y="-12" width="26" height="5" rx="2" fill="#c46f49"/></g>`;
+  return `<svg class="ofc-bg" width="${OW}" height="${OH}" viewBox="0 0 ${OW} ${OH}" aria-hidden="true">
+  <defs><linearGradient id="oSky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--o-sky1)"/><stop offset="1" style="stop-color:var(--o-sky2)"/></linearGradient></defs>
+  <rect class="s-wall" width="960" height="142"/><rect class="s-wall2" y="104" width="960" height="38"/><rect class="s-base" y="138" width="960" height="10"/>
+  <rect class="s-floor" y="148" width="632" height="412"/>${tiles}
+  <rect class="s-wood" x="632" y="148" width="328" height="412"/>${planks}
+  ${win(40,0)}${oBoardSvg()}
+  <circle class="s-frame" cx="410" cy="58" r="27" stroke="var(--o-base)" stroke-width="3"/>${ticks}
+  <path class="o-hh" d="M410 58 V44" stroke="var(--o-ink)" stroke-width="3" stroke-linecap="round" style="transform-origin:410px 58px"/>
+  <path class="o-mh" d="M410 58 V39" stroke="var(--o-ink)" stroke-width="2" stroke-linecap="round" style="transform-origin:410px 58px"/>
+  <path class="o-sh" d="M410 62 V36" stroke="#e5534b" stroke-width="1.2" stroke-linecap="round" style="transform-origin:410px 58px"/>
+  <circle cx="410" cy="58" r="2.4" fill="#e5534b"/>
+  <rect x="468" y="22" width="144" height="98" rx="5" style="fill:var(--o-desk)"/><rect x="474" y="28" width="132" height="86" rx="3" fill="rgba(0,0,0,.12)"/>
+  <rect x="474" y="68" width="132" height="5" style="fill:var(--o-desk2)"/><rect x="474" y="109" width="132" height="5" style="fill:var(--o-desk2)"/>
+  <g class="o-shelf-f"></g>
+  ${oSunflowers()}
+  <rect x="846" y="150" width="68" height="64" rx="5" style="fill:var(--o-desk2)"/><rect x="846" y="150" width="68" height="8" rx="3" style="fill:var(--o-desk)"/>
+  <rect x="860" y="104" width="38" height="46" rx="6" fill="#55525e"/><rect x="866" y="112" width="26" height="12" rx="2" fill="#2e2c35"/>
+  <circle cx="871" cy="118" r="2" fill="#ff6b6b"/><circle cx="879" cy="118" r="2" fill="#69db7c"/>
+  <rect x="872" y="134" width="14" height="14" rx="3" fill="#fff"/><path d="M886 138 q5 1 0 7" fill="none" stroke="#fff" stroke-width="2"/>
+  <path class="s-steam" d="M876 130 q-3 -5 0 -9 q3 -4 0 -8"/><path class="s-steam t2" d="M882 130 q-3 -5 0 -9 q3 -4 0 -8"/>
+  <rect x="922" y="114" width="26" height="36" rx="8" fill="#bfe3ff" opacity=".85"/><rect x="918" y="148" width="34" height="66" rx="5" fill="#e9eef3"/>
+  <rect x="930" y="164" width="10" height="6" rx="2" fill="#7cb2e0"/>
+  <ellipse class="s-rug" cx="800" cy="340" rx="128" ry="64"/><ellipse cx="800" cy="340" rx="110" ry="50" fill="none" stroke="#fff" stroke-width="2" stroke-dasharray="6 6" opacity=".6"/>
+  <rect class="s-sofa" x="690" y="418" width="165" height="40" rx="14"/><rect class="s-sofa2" x="686" y="452" width="173" height="28" rx="10"/>
+  <rect class="s-sofa" x="676" y="430" width="22" height="56" rx="9"/><rect class="s-sofa" x="847" y="430" width="22" height="56" rx="9"/>
+  <rect x="628" y="160" width="10" height="122" rx="3" fill="rgba(150,200,235,.45)" stroke="rgba(120,160,200,.6)"/>
+  <rect x="628" y="356" width="10" height="184" rx="3" fill="rgba(150,200,235,.45)" stroke="rgba(120,160,200,.6)"/>
+  ${plant(633,292,.62)}${plant(633,352,.62)}${plant(22,548,.9)}${plant(942,548,.9)}${plant(614,198,.7)}
+</svg>`;
+}
+function oDeskHtml(i){
+  const d=DESKS[i];
+  return `<div class="odesk" data-i="${i}" style="left:${d.x-56}px; top:${d.y-30}px; z-index:${d.y+60}">
+    <svg width="112" height="74" viewBox="0 0 112 74" aria-hidden="true">
+      <rect x="76" y="0" width="30" height="21" rx="3" fill="#5b6270"/><circle class="mlg" cx="91" cy="10.5" r="3.6"/>
+      <rect x="88.5" y="20" width="5" height="3" fill="#5b6270"/>
+      <rect x="10" y="12" width="9" height="11" rx="2" fill="#fff"/><path d="M19 15 q4 1 0 6" fill="none" stroke="#fff" stroke-width="1.8"/>
+      <rect x="2" y="22" width="108" height="10" rx="4" style="fill:var(--o-desk2)"/>
+      <rect x="8" y="31" width="96" height="40" rx="4" style="fill:var(--o-desk)"/>
+      <rect x="14" y="66" width="10" height="7" rx="2" style="fill:var(--o-desk)"/><rect x="88" y="66" width="10" height="7" rx="2" style="fill:var(--o-desk)"/>
+    </svg>
+    <div class="glow"></div><div class="bell">🔔</div>
+    <div class="plate"></div><div class="bits"><span>{</span><span>;</span><span>}</span></div></div>`;
+}
+function oChairHtml(i){
+  const p=seatOf(i);
+  return `<div class="ochair" style="left:${p.x-20}px; top:${p.y-40}px; z-index:${p.y-1}"><svg width="40" height="40" viewBox="0 0 40 40" aria-hidden="true">
+    <rect x="5" y="2" width="30" height="24" rx="9" fill="#6f7d99"/><rect x="9" y="6" width="22" height="16" rx="6" fill="#8b98b3"/>
+    <rect x="17.5" y="26" width="5" height="9" fill="#5b6680"/><rect x="8" y="34" width="24" height="4" rx="2" fill="#5b6680"/></svg></div>`;
+}
+let ofc=null;
+// 只在办公室仍是同一次打开时执行的延时动作（关掉/重开后旧回调自动作废）
+function oLater(fn, ms){ const O=ofc; return setTimeout(()=>{ if(ofc===O) fn(); }, ms); }
+function openOffice(gid, demo){
+  closeOffice();
+  const o=document.createElement('div'); o.id='ofcOv'; o.className='ofc-ov';
+  o.addEventListener('click',e=>{ if(e.target===o) closeOffice(); });
+  o.innerHTML=`<div class="ofc" role="dialog" aria-modal="true" aria-label="办公室 ${esc(gid)}">
+    <div class="ofc-h"><div style="min-width:0"><h3><b>⌂</b>${esc(gid)}</h3><p id="ofcGoal">载入中…</p></div>
+      <span class="sp"></span><span id="ofcPill"></span><span id="ofcBtns" style="display:flex;gap:8px"></span>
+      <button class="am-x" onclick="closeOffice()" aria-label="关闭">✕</button></div>
+    <div class="ofc-b"><div class="ofc-view" id="ofcView"><div class="ofc-stage" id="ofcStage">${oBgSvg()}<div class="owb"></div>
+      ${DESKS.map((_,i)=>oChairHtml(i)+oDeskHtml(i)).join('')}
+      <svg class="ofc-trail" width="${OW}" height="${OH}"></svg><div class="ofc-fx"></div></div></div>
+      <div class="ofc-side" id="ofcSide"><h4>进度</h4><div id="ofcProg"></div><h4 id="ofcMemH">成员</h4><div id="ofcMem"></div>
+        <h4>交接动态</h4><div class="ofc-feed" id="ofcFeed"></div></div></div></div>`;
+  document.body.appendChild(o);
+  ofc={gid, demo:!!demo, ov:o, stage:o.querySelector('#ofcStage'), fx:o.querySelector('.ofc-fx'), trail:o.querySelector('.ofc-trail'),
+    desks:[...o.querySelectorAll('.odesk')].map(el=>({el, task:null})), chars:[], agents:{}, bind:{}, lastDesk:{},
+    agentDesk:{}, overflow:new Set(), prev:null, job:null, fetchedAt:Date.now(), party:false,
+    notes:{}, card:null, focus:null, focusAgent:null, roster:[], timers:[], seq:0, sim: demo ? demoInit() : null};
+  // 点空白处收起卡片；交接动态里带任务的条目点开任务卡
+  ofc.stage.addEventListener('click', ()=>oCardClose());
+  o.querySelector('#ofcFeed').addEventListener('click', e=>{ const r=e.target.closest('[data-tid]'); if(r) oCardTask(r.dataset.tid); });
+  ofc.ro=new ResizeObserver(oFit); ofc.ro.observe(o.querySelector('#ofcView'));
+  oFit();
+  ofc.timers.push(setInterval(oTick1s,1000), setInterval(oWander,3400), setInterval(ofcPoll, demo?1900:2500));   // 演示略快一点
+  oTick1s(); ofcPoll();
+}
+function closeOffice(){
+  if(!ofc) return;
+  const O=ofc; ofc=null;
+  O.timers.forEach(t=>clearInterval(t)); if(O.ro) O.ro.disconnect();
+  O.chars.forEach(oClearTimers); if(O.raf) cancelAnimationFrame(O.raf);
+  O.ov.remove();
+}
+window.addEventListener('resize', ()=>oFit());
+document.addEventListener('keydown', e=>{ if(e.key==='Escape' && ofc && !amName){ e.stopImmediatePropagation(); ofc.card ? oCardClose() : closeOffice(); } }, true);
+function oFit(){
+  if(!ofc) return;
+  const v=ofc.ov.querySelector('#ofcView'), side=ofc.ov.querySelector('#ofcSide'), w=v.clientWidth;
+  if(!w) return;
+  const s=Math.min(w/OW, Math.max(260, window.innerHeight*.96-70)/OH), h=Math.round(OH*s);
+  if(v.style.height!==h+'px') v.style.height=h+'px';
+  side.style.height = window.innerWidth>900 ? h+'px' : '';
+  ofc.stage.style.transform=`translate(${(w-OW*s)/2}px,0) scale(${s})`;
+}
+function oTick1s(){
+  if(!ofc) return;
+  const d=new Date(), st=ofc.stage;
+  st.classList.toggle('night', d.getHours()>=19 || d.getHours()<6);
+  const rot=(cls,deg)=>{ const e=st.querySelector(cls); if(e) e.style.transform=`rotate(${deg}deg)`; };
+  rot('.o-hh',(d.getHours()%12+d.getMinutes()/60)*30); rot('.o-mh',d.getMinutes()*6+d.getSeconds()*.1); rot('.o-sh',d.getSeconds()*6);
+  const dt=(Date.now()-ofc.fetchedAt)/1000;
+  st.querySelectorAll('.och .bub i[data-e]').forEach(i=>{ i.textContent=dur(+i.dataset.e+dt); });
+}
+async function ofcPoll(){
+  const O=ofc; if(!O || O.busy) return;
+  O.busy=true;
+  try{
+    let job, roster;
+    if(O.demo){ if(O.prev) demoStep(O.sim); job=demoJob(O.sim); roster=DEMO_AGENTS; }
+    else{
+      const r=await fetch('/api/job?goal_id='+encodeURIComponent(O.gid),{cache:'no-store'});
+      job=await r.json(); roster=(lastState&&lastState.agents)||[];
+    }
+    if(ofc!==O) return;
+    if(job.error){ const g=document.getElementById('ofcGoal'); if(g) g.textContent='读取失败：'+job.error; return; }
+    ofcApply(job, roster);
+  }catch(e){ console.warn('office poll failed', e); }   // 网络抖动下个周期再来；渲染异常打到控制台，别静默吞掉
+  finally{ O.busy=false; }
+}
+/* ---- 人物基础操作：生成 / 定位 / 走路（WAAPI 关键帧串起路径点）/ 状态与气泡 ---- */
+const O_MODES=['idle','work','await','cheer','sad','sit'];
+function oSpawn(agent, p, pop){
+  const A=ofc.agents[agent], L=A.look;
+  const el=document.createElement('div');
+  el.className='och idle'; el.style.setProperty('--c', L.c);
+  el.innerHTML=`<div class="spr"><div class="fl">${oAvatar(L)}</div></div><div class="nm">${esc(agent)}</div>`;
+  el.title=`${agent} · ${L.kind}${A.role?' · '+A.role:''}（点击查看）`;
+  el.addEventListener('click', e=>{ e.stopPropagation(); const ch=ofc.chars.find(c=>c.el===el); if(!ch) return;
+    ch.task && ch.seated ? oCardTask(ch.task) : oCardAgent(agent); oPoke(ch); });
+  ofc.stage.insertBefore(el, ofc.trail);
+  const ch={id:++ofc.seq, agent, el, x:p.x, y:p.y, desk:null, task:null, seated:false, spot:null,
+    at:{kind:'lounge'}, timers:[], ftimers:[], anim:null, busyUntil:0};
+  oPlace(ch, p); ofc.chars.push(ch);
+  if(pop) el.animate([{opacity:0, transform:`translate(${p.x}px,${p.y}px) scale(.2)`},
+    {opacity:1, transform:`translate(${p.x}px,${p.y}px) scale(1)`}], {duration:420, easing:'cubic-bezier(.3,1.6,.5,1)'});
+  return ch;
+}
+function oPlace(ch,p){ ch.x=p.x; ch.y=p.y; ch.el.style.transform=`translate(${p.x}px,${p.y}px)`; ch.el.style.zIndex=Math.round(p.y); }
+function oPos(ch){
+  if(!ch.anim) return {x:ch.x, y:ch.y};
+  const m=new DOMMatrixReadOnly(getComputedStyle(ch.el).transform); return {x:m.e, y:m.f};
+}
+function oStop(ch){
+  ch.ftimers.forEach(clearTimeout); ch.ftimers=[];
+  if(!ch.anim) return;
+  const p=oPos(ch); oPlace(ch,p); ch.anim.onfinish=null; ch.anim.cancel(); ch.anim=null; ch.el.classList.remove('walk');
+}
+function oClearTimers(ch){ ch.timers.forEach(clearTimeout); ch.timers=[]; }
+function oDelay(ch, fn, ms){ const id=oLater(()=>{ ch.timers=ch.timers.filter(x=>x!==id); fn(); }, ms); ch.timers.push(id); }
+function oFace(ch,dx){ if(Math.abs(dx)>1) ch.el.classList.toggle('face-l', dx<0); }
+function oMode(ch,m){ O_MODES.forEach(k=>ch.el.classList.remove(k)); (m||'').split(' ').filter(Boolean).forEach(k=>ch.el.classList.add(k)); }
+// 气泡：key 不变只换内容（不重播弹出动画），key 变了才重建
+function oBubble(ch, html, cls, key){
+  let b=ch.el.querySelector('.bub');
+  if(!html){ if(b) b.remove(); ch.bubKey=null; return; }
+  key = key || (cls+'|'+html);
+  if(b && ch.bubKey===key){ if(b.innerHTML!==html) b.innerHTML=html; return; }
+  if(b) b.remove();
+  b=document.createElement('div'); b.className='bub '+(cls||''); b.innerHTML=html; ch.el.appendChild(b); ch.bubKey=key;
+}
+function oEmote(ch, s){
+  let e=ch.el.querySelector('.emo');
+  if(!s){ if(e) e.remove(); return; }
+  if(!e){ e=document.createElement('div'); e.className='emo'; ch.el.appendChild(e); }
+  e.textContent=s;
+}
+function oMove(ch, pts, done){
+  const cur=oPos(ch); oStop(ch);
+  const path=[cur];
+  pts.forEach(p=>{ const q=path[path.length-1]; if(Math.hypot(p.x-q.x,p.y-q.y)>1) path.push(p); });
+  if(path.length<2){ oPlace(ch,cur); if(done) done(); return; }
+  const acc=[0];
+  for(let i=1;i<path.length;i++) acc.push(acc[i-1]+Math.hypot(path[i].x-path[i-1].x, path[i].y-path[i-1].y));
+  const L=acc[acc.length-1], ms=Math.max(420, L/O_SPEED*1000);
+  ch.seated=false; ch.at={kind:'walk'};
+  oMode(ch,null); oEmote(ch,''); ch.el.classList.add('walk'); ch.el.style.zIndex=900;
+  path.slice(1).forEach((p,i)=>{ const dx=p.x-path[i].x;
+    if(i===0) oFace(ch,dx); else ch.ftimers.push(setTimeout(()=>oFace(ch,dx), acc[i]/L*ms)); });
+  ch.anim=ch.el.animate(path.map((p,i)=>({transform:`translate(${p.x}px,${p.y}px)`, offset:acc[i]/L})),
+    {duration:ms, fill:'forwards'});
+  ch.anim.onfinish=()=>{ const end=path[path.length-1]; oPlace(ch,end); ch.anim.cancel(); ch.anim=null;
+    ch.el.classList.remove('walk'); if(done) done(); };
+}
+/* 路由：工位 ⇄ 竖向过道(桌间) ⇄ 横向主过道 ⇄ 待命区入口，避免人物斜穿桌子 */
+const laneX=i=>DESKS[i].x+75;
+function oRoute(ch, to){
+  const p=oPos(ch), at=ch.at||{};
+  const inLounge = at.kind==='lounge' || (at.kind!=='desk' && p.x>=632);
+  if(to.kind==='lounge' && inLounge) return [to.p];
+  let out;
+  if(at.kind==='desk'){ const s=seatOf(at.d), lx=laneX(at.d); out=[{x:lx,y:s.y},{x:lx,y:AISLE}]; }
+  else out = inLounge ? [LOUNGE_IN] : [{x:p.x,y:AISLE}];
+  if(to.kind==='lounge') return out.concat([LOUNGE_IN, to.p]);
+  const s=seatOf(to.d), lx=laneX(to.d);
+  return out.concat([{x:lx,y:AISLE},{x:lx,y:s.y},s]);
+}
+function oFreeSpot(ex){
+  const used=new Set(ofc.chars.filter(c=>!c.dying && c!==ex && c.spot).map(c=>c.spot));
+  const free=O_SPOTS.filter(s=>!used.has(s));
+  if(free.length) return free[Math.floor(Math.random()*free.length)];
+  return {x:672+Math.random()*266, y:206+Math.random()*300, k:'rug'};
+}
+function oIdle(ch){
+  ch.at={kind:'lounge'};
+  const k=ch.spot ? ch.spot.k : 'rug';
+  oMode(ch, k==='sofa' ? 'idle sit' : 'idle'); oBubble(ch,null);
+  oEmote(ch, k==='sofa' ? '💤' : k==='coffee' ? '☕' : (Math.random()<.35 ? '♪' : ''));
+}
+// 回待命区：同 agent 还有别的分身在场 → 走到入口淡出合并；否则找个空位待命
+function oToLounge(ch, instant){
+  oClearTimers(ch);
+  if(ofc.chars.some(c=>c!==ch && !c.dying && c.agent===ch.agent)){
+    ch.dying=true; ch.spot=null;
+    if(instant) return oRemove(ch);
+    return oMove(ch, oRoute(ch,{kind:'lounge', p:{x:LOUNGE_IN.x+26, y:AISLE}}), ()=>oRemove(ch));
+  }
+  ch.spot=oFreeSpot(ch);
+  if(instant){ oPlace(ch, ch.spot); oIdle(ch); return; }
+  oMove(ch, oRoute(ch,{kind:'lounge', p:ch.spot}), ()=>oIdle(ch));
+}
+function oRemove(ch){
+  ch.dying=true; oClearTimers(ch); oStop(ch);
+  ofc.chars=ofc.chars.filter(c=>c!==ch);
+  ch.el.animate([{opacity:1},{opacity:0}],{duration:360, fill:'forwards'}).onfinish=()=>ch.el.remove();
+}
+function oWander(){
+  if(!ofc || ofc.party || Math.random()<.3) return;
+  const idle=ofc.chars.filter(c=>!c.dying && c.desk==null && !c.anim && c.at.kind==='lounge' && !c.timers.length);
+  if(!idle.length) return;
+  if(idle.length>=2 && Math.random()<.4) return oChat(idle);
+  const ch=idle[Math.floor(Math.random()*idle.length)];
+  ch.spot=oFreeSpot(ch); oMove(ch, [ch.spot], ()=>oIdle(ch));
+}
+/* ---- 特效：交接文件夹抛物线飞行 + 虚线轨迹 + 标签、星星迸发、飘字、彩带 ---- */
+function oFolderSvg(c){
+  return `<svg width="26" height="22" viewBox="0 0 26 22"><path d="M1 4 Q1 2 3 2 H10 L12.5 5 H23 Q25 5 25 7 V19 Q25 21 23 21 H3 Q1 21 1 19 Z" fill="${c}"/>
+    <rect x="1" y="8" width="24" height="13" rx="2" fill="#fff" opacity=".28"/><rect x="5" y="11" width="11" height="2" rx="1" fill="#fff" opacity=".8"/></svg>`;
+}
+function oFly(from, to, color, label, onLand){
+  const O=ofc; if(!O) return;
+  const el=document.createElement('div'); el.className='ofld'; el.innerHTML=oFolderSvg(color); O.fx.appendChild(el);
+  const dist=Math.hypot(to.x-from.x, to.y-from.y), h=Math.min(130, 36+dist*.28), N=16, kf=[];
+  for(let i=0;i<=N;i++){ const s=i/N, k=Math.sin(Math.PI*s);
+    kf.push({transform:`translate(${from.x+(to.x-from.x)*s}px,${from.y+(to.y-from.y)*s-k*h}px) rotate(${(s-.5)*36}deg) scale(${.8+k*.45})`}); }
+  el.animate(kf, {duration:Math.max(1000, Math.min(1700, dist*2.4)), easing:'ease-in-out', fill:'forwards'})
+    .onfinish=()=>{ el.remove(); if(ofc===O){ oBurst(to, 5, ['✨']); if(onLand) onLand(); } };
+  const mx=(from.x+to.x)/2, my=(from.y+to.y)/2;
+  const path=document.createElementNS('http://www.w3.org/2000/svg','path');
+  path.setAttribute('d', `M${from.x},${from.y} Q${mx},${my-2*h} ${to.x},${to.y}`); path.setAttribute('stroke', color);
+  O.trail.appendChild(path); setTimeout(()=>path.remove(), 2700);
+  if(label){ const lb=document.createElement('div'); lb.className='olbl'; lb.style.cssText=`left:${mx}px; top:${my-h-16}px; --c:${color}`;
+    lb.textContent=label; O.fx.appendChild(lb); setTimeout(()=>lb.remove(), 2700); }
+}
+function oBurst(p, n, set){
+  const O=ofc; if(!O) return;
+  set = set || ['⭐','✨','🌟','💫'];
+  for(let i=0;i<n;i++){
+    const s=document.createElement('span'); s.className='ostar'; s.textContent=set[i%set.length]; O.fx.appendChild(s);
+    const a=Math.PI*2*i/n+Math.random()*.5, r=26+Math.random()*34, x=p.x+Math.cos(a)*r, y=p.y+Math.sin(a)*r*.75-12;
+    s.animate([{transform:`translate(${p.x}px,${p.y}px) scale(.3)`, opacity:1},
+      {transform:`translate(${x}px,${y}px) scale(1.15) rotate(${(Math.random()-.5)*90}deg)`, opacity:1, offset:.6},
+      {transform:`translate(${x}px,${y+10}px) scale(.8)`, opacity:0}], {duration:900+Math.random()*400, easing:'cubic-bezier(.2,.8,.3,1)'})
+      .onfinish=()=>s.remove();
+  }
+}
+function oFloat(p, text, color){
+  const O=ofc; if(!O) return;
+  const s=document.createElement('span'); s.className='ofloat'; s.textContent=text; s.style.color=color; O.fx.appendChild(s);
+  s.animate([{transform:`translate(${p.x}px,${p.y}px) translateX(-50%) scale(.6)`, opacity:0},
+    {transform:`translate(${p.x}px,${p.y-16}px) translateX(-50%) scale(1.1)`, opacity:1, offset:.25},
+    {transform:`translate(${p.x}px,${p.y-46}px) translateX(-50%) scale(1)`, opacity:0}], {duration:1600, easing:'ease-out'})
+    .onfinish=()=>s.remove();
+}
+function oConfetti(){
+  const O=ofc; if(!O) return;
+  let cv=O.stage.querySelector('.ofc-cv');
+  if(!cv){ cv=document.createElement('canvas'); cv.className='ofc-cv'; cv.width=OW*2; cv.height=OH*2; O.stage.appendChild(cv); }
+  const g=cv.getContext('2d'); g.setTransform(2,0,0,2,0,0);
+  const cols=['#ff5e7e','#ffd23f','#4fc3f7','#81c784','#ba68c8','#ff8a65','#ffffff'], ps=O.confetti=(O.confetti||[]);
+  const add=(x,y,vx,vy)=>ps.push({x,y,vx,vy, r:Math.random()*6.3, vr:(Math.random()-.5)*.3, w:5+Math.random()*5,
+    h:3+Math.random()*4, c:cols[ps.length%cols.length], s:Math.random()*6.3});
+  for(let i=0;i<150;i++) add(Math.random()*OW, -10-Math.random()*240, (Math.random()-.5)*2, 1+Math.random()*2.4);
+  for(let i=0;i<90;i++){ const L=i%2; add(L?OW-30:30, OH-24, (L?-1:1)*(2.5+Math.random()*4.5), -(6+Math.random()*5.5)); }
+  if(O.raf) return;
+  const step=()=>{
+    if(ofc!==O) return;
+    g.clearRect(0,0,OW,OH);
+    for(let i=ps.length-1;i>=0;i--){
+      const p=ps[i]; p.vy=Math.min(p.vy+.07, 3); p.vx*=.992; p.s+=.07; p.x+=p.vx+Math.sin(p.s)*.5; p.y+=p.vy; p.r+=p.vr;
+      if(p.y>OH+20){ ps.splice(i,1); continue; }
+      g.save(); g.translate(p.x,p.y); g.rotate(p.r); g.fillStyle=p.c;
+      g.fillRect(-p.w/2, -p.h/2, p.w, p.h*Math.abs(Math.cos(p.s))+1); g.restore();
+    }
+    O.raf = ps.length ? requestAnimationFrame(step) : null;
+  };
+  O.raf=requestAnimationFrame(step);
+}
+/* ---- 工位与任务的绑定：入座、在岗状态同步、离座（完成小庆祝 / 失败 / 打回 / 重置） ---- */
+const oActive=t=>!!t && !!t.agent && (t.status==='dispatched'||t.status==='awaiting_input');
+const oTime=()=>{ const d=new Date(); return pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds()); };
+// ts 缺省=现在；非今天的条目带上月-日
+function oFeed(html, cls, ts, tid){
+  const box=document.getElementById('ofcFeed'); if(!box) return;
+  const d=ts ? new Date(ts*1000) : null, today=!d || d.toDateString()===new Date().toDateString();
+  const t=d ? (today ? '' : pad(d.getMonth()+1)+'-'+pad(d.getDate())+' ')+evtime(ts) : oTime();
+  const e=document.createElement('div'); e.innerHTML=`<span class="t">${t}</span><span class="x ${cls||''}">${html}</span>`;
+  if(tid){ e.dataset.tid=tid; e.title='点击查看任务卡'; }
+  box.prepend(e); while(box.children.length>60) box.lastChild.remove();
+}
+/* 打开时从账本的运行记录 + 打回记录重建历史动态：关掉期间发生的交接/完成也看得到，重开不丢。
+   之后的实时变化由 ofcApply 逐条追加。 */
+const O_RUN_END={done:['✓','完成','ok'], failed:['✗','失败','bad'], timeout:['✗','超时','bad'], fatal:['✗','致命失败','bad'],
+  retasked:['↺','改写重派',''], reset:['↺','连锁重置',''], superseded:['↺','被覆盖',''], bypassed:['↺','被绕过','']};
+function oHistory(job){
+  const ts=job.tasks||[], byId={}, ev=[];
+  ts.forEach(t=>byId[t.task_id]=t);
+  const doneAt=u=>{ const r=((byId[u]||{}).runs||[]).filter(r=>r.outcome==='done' && r.ended_at).slice(-1)[0]; return r ? r.ended_at : null; };
+  ts.forEach(t=>(t.runs||[]).forEach(r=>{
+    const who=esc(r.agent||t.agent||'?'), tid=esc(t.task_id);
+    if(r.started_at){
+      ev.push([r.started_at, 1, `▶ <b>${who}</b> 接手 ${tid}${(r.attempt||1)>1?' · 第 '+r.attempt+' 次':''}`, 'go', t.task_id]);
+      (t.needs||[]).forEach(u=>{ const at=doneAt(u); if(at && at<=r.started_at)
+        ev.push([r.started_at, 0, `📁 交接 ${esc(u)} → ${tid}（${esc((byId[u]||{}).agent||'?')} → <b>${who}</b>）`, 'hand', t.task_id]); });
+    }
+    const o=O_RUN_END[r.outcome];
+    if(r.ended_at && o) ev.push([r.ended_at, 2, `${o[0]} <b>${who}</b> ${o[1]} ${tid}${r.outcome==='done'&&r.active_s!=null?' · '+dur(r.active_s):''}`, o[2], t.task_id]);
+  }));
+  ts.forEach(t=>(t.rejections||[]).forEach(r=>{ if(r.ts)
+    ev.push([r.ts, 3, `↩ ${esc(r.from||'?')} 打回 ${esc(t.task_id)}${r.reason?'：'+esc(clip(r.reason,60)):''}`, 'rej', t.task_id]); }));
+  ev.sort((a,b)=>a[0]-b[0] || a[1]-b[1]);
+  ev.slice(-60).forEach(e=>oFeed(e[2], e[3], e[0], e[4]));
+  return ev.length;
+}
+function oDeskSet(d, agent, typing){
+  const el=ofc.desks[d].el;
+  if(!agent){ el.classList.remove('on','typing','ask'); return; }
+  el.style.setProperty('--c', ofc.agents[agent].look.c);
+  el.querySelector('.plate').textContent=agent; el.classList.add('on'); el.classList.toggle('typing', !!typing);
+}
+function oDeskPoint(tid){ const b=ofc.bind[tid]; const d=b?b.d:ofc.lastDesk[tid]; return d==null ? null : deskTop(d); }
+function oSync(ch, t){
+  if(!ch.seated || !t) return;
+  const aw=t.status==='awaiting_input';
+  oMode(ch, aw?'await sit':'work sit'); ch.el.classList.remove('face-l');
+  if(aw) oBubble(ch, t.escalated?'⚠ 打回超限 · 待裁决':'🙋 等人决策', 'await', 'aw|'+t.task_id);
+  else oBubble(ch, `<b>${esc(clip(t.task_id,16))}</b><i data-e="${t.elapsed_s??0}">${dur(t.elapsed_s)}</i>`, '', 'w|'+t.task_id);
+  ch.el.title = aw && t.awaiting_reason ? `${ch.agent} 等待：${t.awaiting_reason}` : `${ch.agent} · ${ofc.agents[ch.agent].look.kind} · ${t.task_id}`;
+  oDeskSet(ch.desk, ch.agent, !aw); ofc.desks[ch.desk].el.classList.toggle('ask', aw);
+}
+function oAssign(t, first, newly){
+  const O=ofc, tid=t.task_id, free=i=>!O.desks[i].task;
+  let d=O.agentDesk[t.agent];
+  if(d==null || !free(d)) d=O.desks.findIndex((_,i)=>free(i));
+  if(d<0){ O.overflow.add(tid); return; }
+  O.overflow.delete(tid);
+  O.desks[d].task=tid; O.agentDesk[t.agent]=d; O.bind[tid]={d, ch:null};
+  oDeskSet(d, t.agent, false);
+  let ch=O.chars.filter(c=>!c.dying && c.agent===t.agent && c.desk==null).sort((a,b)=>a.busyUntil-b.busyUntil)[0];
+  if(!ch) ch=oSpawn(t.agent, first ? seatOf(d) : {x:LOUNGE_IN.x+20, y:AISLE}, !first);
+  ch.desk=d; ch.task=tid; ch.spot=null; O.bind[tid].ch=ch;
+  oClearTimers(ch); oEmote(ch,'');
+  const flights=[];
+  const sit=()=>{ ch.at={kind:'desk', d}; ch.seated=true; oSync(ch, O.byId[tid]);
+    flights.splice(0).forEach((f,i)=>oLater(f, 250+i*380)); };
+  if(first){ oStop(ch); oPlace(ch, seatOf(d)); sit(); return; }
+  const go=()=>{ oBubble(ch, `→ ${esc(tid)}`, '', 'go|'+tid); oMove(ch, oRoute(ch,{kind:'desk', d}), sit); };
+  const wait=ch.busyUntil-Date.now(); wait>0 ? oDelay(ch, go, wait) : go();
+  if(!newly) return;
+  oFeed(`▶ <b>${esc(t.agent)}</b> 接手 ${esc(tid)}`, 'go', null, tid);
+  // 交接：上游已完成的产物在接手方坐下后飞到本工位（同一快照里刚完成的上游从它的工位直飞，否则从交付架取），
+  // 落地时接手方举手接住
+  (t.needs||[]).filter(u=>(O.byId[u]||{}).status==='done').slice(0,3).forEach(u=>{
+    const direct=(O.handNow[tid]||[]).includes(u), from=direct ? oDeskPoint(u) : SHELF;
+    if(!from) return;
+    const ua=(O.byId[u]||{}).agent||'?', c=O.agents[ua] ? O.agents[ua].look.c : '#2c9a8f';
+    flights.push(()=>oFly(from, deskTop(d), c, `${u} → ${tid}`, ()=>oCatch(tid)));
+    oFeed(`📁 交接 ${esc(u)} → ${esc(tid)}（${esc(ua)} → <b>${esc(t.agent)}</b>）`, 'hand', null, tid);
+  });
+}
+function oEnd(tid, t, pt){
+  const O=ofc, b=O.bind[tid]; delete O.bind[tid];
+  O.desks[b.d].task=null; oDeskSet(b.d, null); O.lastDesk[tid]=b.d;
+  const ch=b.ch, st=t ? t.status : 'gone', p=deskTop(b.d);
+  if(ch){ ch.desk=null; ch.task=null; ch.seated=false; oClearTimers(ch); oStop(ch); oEmote(ch,''); }
+  let hold=900;
+  if(st==='done'){
+    oBurst(p, 9); oFloat({x:p.x, y:p.y-30}, '✓ 完成 +1', '#2f855a'); hold=1800;
+    if(ch){ oMode(ch,'cheer'); oBubble(ch, `✓ ${esc(tid)}`, 'done'); }
+    const act=(t.timing||{}).active_s;
+    oFeed(`✓ <b>${esc(t.agent||'')}</b> 完成 ${esc(tid)}${act!=null?' · '+dur(act):''}`, 'ok', null, tid);
+    const downs=(O.job.tasks||[]).filter(x=>(x.needs||[]).includes(tid) && O.newly.has(x.task_id));
+    if(downs.length) downs.forEach(x=>(O.handNow[x.task_id]=O.handNow[x.task_id]||[]).push(tid));
+    else{ const c=ch ? O.agents[ch.agent].look.c : '#2f855a';
+      oLater(()=>oFly(p, SHELF, c, `${tid} 交付`, ()=>oShelf(true)), 500); }
+  }else if(st==='failed'){
+    hold=2600; if(ch){ oMode(ch,'sad'); oBubble(ch, '✗ 失败了…', 'fail'); }
+    oFloat({x:p.x, y:p.y-30}, '✗ 失败', '#d64545');
+    oFeed(`✗ <b>${esc(t.agent||'')}</b> 在 ${esc(tid)} 失败${t.error?'：'+esc(clip(t.error,60)):''}`, 'bad', null, tid);
+  }else if(t && (t.reject_count||0)>((pt||{}).reject_count||0)){
+    hold=1800; if(ch){ oMode(ch,'sad'); oBubble(ch, '↩ 被打回，重来', 'fail'); }
+  }else if(ch){
+    const lb={skipped:'跳过', bypassed:'被绕过', pending:'重置', ready:'重新排队', gone:'已移除'}[st] || st;
+    // 打回方自己也会被连锁重置：这条由第 4 步的打回动画/动态代表，不再重复记「重置」
+    const rejecter=(O.job.tasks||[]).some(x=>((x.rejections||[]).slice(-1)[0]||{}).from===tid
+      && (x.reject_count||0)>((O.prev.byId[x.task_id]||{}).reject_count||0));
+    oMode(ch,'idle'); oBubble(ch, `↺ ${esc(lb)}`, '');
+    if(rejecter) hold=1800; else oFeed(`↺ ${esc(tid)} ${esc(lb)}`, '', null, tid);
+  }
+  if(ch){ ch.busyUntil=Date.now()+hold; oDelay(ch, ()=>{ oBubble(ch,null); oToLounge(ch); }, hold); }
+}
+/* ---- 每次快照的总调和：比对上一快照 → 驱动人物、交接、打回、庆祝，刷新侧栏 ---- */
+function ofcApply(job, roster){
+  const O=ofc, first=!O.prev, tasks=job.tasks||[], byId={}, prevT=first ? {} : O.prev.byId;
+  tasks.forEach(t=>byId[t.task_id]=t);
+  O.job=job; O.byId=byId; O.roster=roster; O.fetchedAt=Date.now(); O.handNow={};
+  // 1) 成员：只取本 Job 相关的 agent——分派过的，或能力命中未开工任务的候选
+  const rel=new Set(tasks.map(t=>t.agent).filter(Boolean));
+  const openCaps=new Set(tasks.filter(t=>t.status==='pending'||t.status==='ready').flatMap(t=>t.capabilities||[]));
+  roster.forEach(a=>{ if((a.capabilities||[]).some(c=>openCaps.has(c))) rel.add(a.name); });
+  const list=[...rel].map(n=>roster.find(a=>a.name===n)||{name:n});
+  oAssignLooks(O, list);
+  // 不再相关（候选任务被别的 agent 接走）且不在工位上的人物淡出
+  O.chars.filter(c=>!c.dying && c.desk==null && !rel.has(c.agent)).forEach(oRemove);
+  // 2) 本快照新开工 / 状态变化
+  O.newly=new Set(first ? [] : tasks.filter(t=>oActive(t) && !oActive(prevT[t.task_id])).map(t=>t.task_id));
+  if(!first) tasks.forEach(t=>{ const pt=prevT[t.task_id]; if(!pt || !oActive(t) || !oActive(pt) || pt.status===t.status) return;
+    oFeed(t.status==='awaiting_input' ? `🙋 <b>${esc(t.agent)}</b> 在 ${esc(t.task_id)} 停下等人决策` : `▶ <b>${esc(t.agent)}</b> 继续 ${esc(t.task_id)}`,
+      t.status==='awaiting_input' ? 'ask' : 'go', null, t.task_id); });
+  // 3) 离座：任务不再在跑，或被改派给了别的 agent
+  Object.keys(O.bind).forEach(tid=>{ const t=byId[tid], b=O.bind[tid];
+    if(oActive(t) && (!b.ch || b.ch.agent===t.agent)) return; oEnd(tid, t, prevT[tid]); });
+  // 4) 打回：目标任务 reject_count 增加 → 红色文件夹从打回方飞回被打回方
+  if(!first) tasks.forEach(t=>{
+    const pt=prevT[t.task_id]; if(!pt || (t.reject_count||0)<=(pt.reject_count||0)) return;
+    const r=(t.rejections||[]).slice(-1)[0] || {}, from=oDeskPoint(r.from) || SHELF, to=oDeskPoint(t.task_id) || SHELF;
+    oLater(()=>oFly(from, to, '#dd7230', `↩ 打回 ${t.task_id}`), 300);
+    const rc=O.chars.find(c=>c.task===r.from || (c.agent===(byId[r.from]||{}).agent && !c.dying));
+    if(rc && !rc.seated) oBubble(rc, `↩ 打回 ${esc(t.task_id)}`, 'fail');
+    oFeed(`↩ ${esc(r.from||'?')} 打回 ${esc(t.task_id)}${r.reason?'：'+esc(clip(r.reason,60)):''}`, 'rej', null, t.task_id);
+    oLater(()=>oStamp(to, '打回'), 1500);
+  });
+  // 5) 入座：在跑但还没工位的任务（含上轮工位满排队的）
+  tasks.filter(t=>oActive(t) && !O.bind[t.task_id]).forEach(t=>oAssign(t, first, O.newly.has(t.task_id)));
+  [...O.overflow].forEach(tid=>{ if(!oActive(byId[tid]) || O.bind[tid]) O.overflow.delete(tid); });
+  Object.keys(O.bind).forEach(tid=>{ const b=O.bind[tid]; if(b.ch) oSync(b.ch, byId[tid]); });
+  // 6) 待命区：每个相关 agent 至少一个人物
+  list.forEach(a=>{ if(O.chars.some(c=>!c.dying && c.agent===a.name)) return;
+    if(first){ const ch=oSpawn(a.name, {x:0,y:0}, false); ch.spot=oFreeSpot(ch); oPlace(ch, ch.spot); oIdle(ch); }
+    else{ const ch=oSpawn(a.name, {x:LOUNGE_IN.x+20, y:AISLE}, true); oToLounge(ch); } });
+  // 7) 交付架 / 头部 / 侧栏 / 空场提示
+  oShelf(false); oBoard(); oHeader(job); oSide(list, rel); oCardPaint(); oFocusPaint();
+  const busy=Object.keys(O.bind).length;
+  let em=O.stage.querySelector('.ofc-empty');
+  const emTxt=job.complete ? '' : (busy ? '' : '工位空着 · 等协调者分派下一步…');
+  if(emTxt && !em){ em=document.createElement('div'); em.className='ofc-empty'; O.stage.appendChild(em); }
+  if(em){ if(emTxt) em.textContent=emTxt; else em.remove(); }
+  let mo=O.stage.querySelector('.ofc-more');
+  if(O.overflow.size && !mo){ mo=document.createElement('div'); mo.className='ofc-more'; O.stage.appendChild(mo); }
+  if(mo){ if(O.overflow.size) mo.textContent=`+${O.overflow.size} 个任务在跑（工位已满，未画出）`; else mo.remove(); }
+  if(first){ const n=oHistory(job);
+    oFeed(`${n?'— 以上为历史记录 · ':''}现在 ${busy} 人在岗，${O.chars.length-busy} 人待命`, ''); }
+  // 8) Job 收敛 → 全员大庆祝
+  if(job.complete && (first || !O.prev.complete)) oLater(()=>oParty(!!job.ok), first ? 400 : 2000);
+  O.prev={byId, complete:!!job.complete};
+}
+function oShelf(pulse){
+  const O=ofc, n=(O.job.tasks||[]).filter(t=>t.status==='done').length, st=O.stage;
+  const g=st.querySelector('.o-shelf-f'); if(!g || g.dataset.n===String(n)) return;
+  g.dataset.n=String(n);
+  const cols=['#ef8354','#4f9dde','#6bbf75','#b07cc6','#e8b13a','#e26d8b'];
+  let h='';
+  for(let i=0;i<Math.min(n,16);i++){ const r=i>>3, c=i%8;
+    h+=`<rect x="${479+c*15.5}" y="${r?78:33}" width="12" height="${r?30:34}" rx="2" fill="${cols[i%cols.length]}"/>
+      <rect x="${481+c*15.5}" y="${r?84:40}" width="8" height="3" rx="1" fill="#fff" opacity=".75"/>`; }
+  if(n>16) h+=`<text x="600" y="106" text-anchor="end" style="font:700 10px var(--sans); fill:#fff">+${n-16}</text>`;
+  g.innerHTML=h;
+  if(pulse) oBurst({x:SHELF.x, y:SHELF.y-20}, 4, ['✨']);
+}
+function oParty(ok){
+  const O=ofc; if(!O || O.party) return;
+  O.party=true;
+  const bn=document.createElement('div'); bn.className='ofc-banner'+(ok?'':' warn');
+  bn.innerHTML=ok ? '🎉 全部完成！<small>团队辛苦啦 · 交付架已收齐</small>' : '收敛 · 含失败<small>部分任务失败/跳过，记得看看 DAG</small>';
+  O.stage.appendChild(bn);
+  oFeed(ok ? '🎉 Job 全部完成，全员庆祝' : '⚠ Job 已收敛（含失败）', ok ? 'ok' : 'rej');
+  if(ok){ oConfetti(); oLater(oConfetti, 1600); oLater(oConfetti, 3400); oLater(oPhoto, 3800); }
+  const cs=O.chars.filter(c=>!c.dying), n=cs.length;
+  cs.forEach((ch,i)=>{
+    const a=-Math.PI/2+Math.PI*2*i/Math.max(1,n), rx=n>8?108:86, ry=n>8?50:40;
+    const p={x:800+Math.cos(a)*rx, y:338+Math.sin(a)*ry};
+    oClearTimers(ch); ch.spot=null;
+    const go=()=>oMove(ch, oRoute(ch,{kind:'lounge', p}), ()=>{
+      ch.at={kind:'lounge'}; oFace(ch, 800-p.x); oBubble(ch,null);
+      oMode(ch, ok ? 'cheer' : 'idle'); oEmote(ch, ok ? ['🎉','🥳','🎊','👏'][i%4] : '😮‍💨');
+      const spr=ch.el.querySelector('.spr'); if(spr) spr.style.animationDelay=(-Math.random()*.46).toFixed(2)+'s';
+      if(ok) oBurst({x:p.x, y:p.y-60}, 4);
+    });
+    const w=Math.max(0, ch.busyUntil-Date.now())+i*90; oDelay(ch, go, w);
+  });
+  oLater(()=>{ O.party=false;
+    O.chars.forEach(ch=>{ if(ch.desk!=null || ch.dying) return; const spr=ch.el.querySelector('.spr');
+      if(spr) spr.style.animationDelay=''; oEmote(ch,''); oToLounge(ch); });
+  }, 11000);
+}
+function oHeader(job){
+  const g=document.getElementById('ofcGoal'); if(g) g.textContent=job.goal || (ofc.demo ? '' : '—');
+  const pill=document.getElementById('ofcPill');
+  if(pill) pill.innerHTML = !job.complete ? `<span class="badge live">运行中 · ${esc(job.summary||'')}</span>`
+    : (job.ok ? '<span class="badge ok">已完成</span>' : '<span class="badge fail">收敛(含失败)</span>');
+  const bt=document.getElementById('ofcBtns');
+  if(bt && !bt.dataset.on){ bt.dataset.on='1';
+    bt.innerHTML = ofc.demo ? `<button class="dag-back" onclick="openOffice('demo-office',true)" title="从头再演一遍">↻ 重播</button>`
+      : `<button class="dag-back" onclick="const g=ofc.gid;closeOffice();openDag(g)" title="打开该 Job 的 DAG">DAG ▧</button>`; }
+}
+function oSide(list, rel){
+  const O=ofc, ts=O.job.tasks||[], n=ts.length||1, cnt=s=>ts.filter(t=>t.status===s).length;
+  const seg=[[cnt('done'),'var(--done)','完成'],[cnt('dispatched'),'var(--run)','在做'],[cnt('awaiting_input'),'var(--await)','等人'],
+    [cnt('failed'),'var(--fail)','失败']];
+  const prog=`<div class="ofc-prog">${seg.map(s=>`<i style="width:${s[0]/n*100}%;background:${s[1]}" title="${s[2]} ${s[0]}"></i>`).join('')}</div>
+    <div class="ofc-pn"><span>${seg.filter(s=>s[0]).map(s=>`${s[2]} <b>${s[0]}</b>`).join(' · ')||'尚未开工'}</span><span><b>${cnt('done')}</b> / ${ts.length}</span></div>`;
+  const pe=document.getElementById('ofcProg'); if(pe && pe.innerHTML!==prog) pe.innerHTML=prog;
+  const work={};
+  Object.keys(O.bind).forEach(tid=>{ const t=O.byId[tid]; if(t) (work[t.agent]=work[t.agent]||[]).push(t); });
+  const rows=list.slice().sort((a,b)=>(!!work[b.name]-!!work[a.name]) || (rel.has(b.name)-rel.has(a.name)) || a.name.localeCompare(b.name))
+    .map(a=>{ const A=O.agents[a.name], L=A.look, w=work[a.name]||[], aw=w.find(t=>t.status==='awaiting_input');
+      const s = aw ? `等人决策 · ${esc(aw.task_id)}` : w.length ? `在做 ${w.map(t=>esc(t.task_id)).join('、')}`
+        : '待命';
+      return `<div class="ofc-mem" style="--c:${L.c}" onclick="oCardAgent('${esc(a.name)}')" title="${esc(A.role||a.name)}">
+        <div class="av">${oAvatar(L)}</div><div class="mi"><div class="mn">${esc(a.name)}<span>${esc(L.kind)}</span></div>
+        <div class="ms${aw?' a':w.length?' w':''}">${s}</div></div></div>`; }).join('');
+  const me=document.getElementById('ofcMem');
+  const html=rows;
+  if(me && me._h!==html){ me._h=html; me.innerHTML=html; }
+  const mh=document.getElementById('ofcMemH'); if(mh) mh.textContent=`成员 · ${Object.keys(work).length} 在岗 / ${list.length}`;
+}
+/* ---- 任务白板：每个任务一张便利贴，状态变化时滑到对应列（CSS transition） ---- */
+const O_COL=s=>(s==='dispatched'||s==='awaiting_input') ? 1 : (['done','failed','skipped','bypassed'].includes(s) ? 2 : 0);
+const O_BOARD_MAX=15;   // 每列最多 5 行 × 3 张；超出时最后一格显示 +N
+function oBoard(){
+  const O=ofc, box=O.stage.querySelector('.owb'), cols=[[],[],[]], seen=new Set();
+  (O.job.tasks||[]).forEach(t=>cols[O_COL(t.status)].push(t));
+  box.querySelectorAll('.owb-more').forEach(e=>e.remove());
+  cols.forEach((list,k)=>{
+    const over=list.length>O_BOARD_MAX;
+    list.forEach((t,i)=>{
+      const tid=t.task_id; seen.add(tid);
+      let el=O.notes[tid];
+      if(!el){ el=document.createElement('div'); el.dataset.tid=tid;
+        el.addEventListener('click', e=>{ e.stopPropagation(); oCardTask(tid); }); box.appendChild(el); O.notes[tid]=el; }
+      const p=oNotePos(k, i), st=t.status;
+      el.className='onote'+(k===0 && !t.agent ? ' pend' : '')+(st==='awaiting_input' ? ' aw' : '')+(st==='failed' ? ' bad' : '')
+        +(st==='skipped'||st==='bypassed' ? ' skip' : '');
+      el.style.setProperty('--c', t.agent && O.agents[t.agent] ? O.agents[t.agent].look.c : '#9ec5e8');
+      el.style.display = over && i>=O_BOARD_MAX-1 ? 'none' : '';
+      el.style.transform=`translate(${p.x}px,${p.y}px)`;
+      el.title=`${tid} · ${_SL[st]||st}${t.agent?' · '+t.agent:''}`;
+    });
+    if(over){ const p=oNotePos(k, O_BOARD_MAX-1), m=document.createElement('div'); m.className='owb-more';
+      m.style.cssText=`left:${p.x}px; top:${p.y}px`; m.textContent='+'+(list.length-O_BOARD_MAX+1); box.appendChild(m); }
+  });
+  Object.keys(O.notes).forEach(tid=>{ if(!seen.has(tid)){ O.notes[tid].remove(); delete O.notes[tid]; } });
+}
+/* ---- 任务卡 / agent 卡：舞台内弹出，选中对象及其上下游在白板、工位、人物上同时高亮 ---- */
+function oTaskPoint(tid){
+  const O=ofc, b=O.bind[tid]; if(b) return deskTop(b.d);
+  const el=O.notes[tid];
+  if(el){ const m=new DOMMatrixReadOnly(getComputedStyle(el).transform); return {x:m.e, y:m.f+8}; }
+  return {x:OW/2, y:OH/2};
+}
+function oCardTask(tid){ if(ofc && ofc.byId[tid]) oCardOpen('task', tid, oTaskPoint(tid)); }
+function oCardAgent(name){
+  if(!ofc || !ofc.agents[name]) return;
+  const ch=ofc.chars.find(c=>!c.dying && c.agent===name);
+  oCardOpen('agent', name, ch ? oPos(ch) : {x:800, y:300});
+}
+function oCardOpen(kind, key, p){
+  const O=ofc; oCardClose();
+  const el=document.createElement('div'); el.className='ocard';
+  el.addEventListener('click', e=>e.stopPropagation());
+  O.stage.appendChild(el);
+  O.card={kind, key, el, p}; O.focus=kind==='task' ? key : null; O.focusAgent=kind==='agent' ? key : null;
+  oCardPaint(); oFocusPaint();
+}
+function oCardClose(){
+  const O=ofc; if(!O || !O.card) return;
+  O.card.el.remove(); O.card=null; O.focus=null; O.focusAgent=null; oFocusPaint();
+}
+function oCardPaint(){
+  const O=ofc, C=O && O.card; if(!C) return;
+  const html=C.kind==='task' ? oTaskCardHtml(C.key) : oAgentCardHtml(C.key);
+  if(html==null) return oCardClose();
+  if(C.el._h!==html){ C.el._h=html; C.el.innerHTML=html; }
+  const w=C.el.offsetWidth, h=C.el.offsetHeight, p=C.p;
+  let x=p.x+22, y=p.y-34;
+  if(x+w>OW-6) x=p.x-w-22;
+  C.el.style.left=Math.max(6, Math.min(OW-w-6, x))+'px'; C.el.style.top=Math.max(6, Math.min(OH-h-6, y))+'px';
+}
+const oDep=u=>{ const x=ofc.byId[u];
+  return `<span class="dep" style="--sc:${_SC[x?x.status:'']||'var(--soft)'}" onclick="oCardTask('${esc(u)}')" title="${esc(x?_SL[x.status]||x.status:'')}"><i></i>${esc(u)}</span>`; };
+const oDeps=a=>a.length ? a.map(oDep).join('') : '—';
+function oTaskCardHtml(tid){
+  const O=ofc, t=O.byId[tid]; if(!t) return null;
+  const A=t.agent && O.agents[t.agent], st=t.status, tm=t.timing||{};
+  O.card.el.style.setProperty('--c', A ? A.look.c : '#d4a27f');
+  const ups=(t.needs||[]).filter(u=>O.byId[u]), downs=(O.job.tasks||[]).filter(x=>(x.needs||[]).includes(tid)).map(x=>x.task_id);
+  const time=oActive(t) && t.elapsed_s!=null ? '已运行 '+dur(t.elapsed_s) : (tm.active_s!=null ? '净执行 '+dur(tm.active_s) : '');
+  const nrun=Array.isArray(t.runs) ? t.runs.length : 0;
+  const who=A ? `${esc(t.agent)} · ${esc(A.look.kind)}`
+    : `待分派${(t.capabilities||[]).length ? ' · 需要 '+esc(t.capabilities.join(', ')) : ''}`;
+  const rj=(t.rejections||[]).slice(-1)[0];
+  const notes=[
+    t.goal ? `<div class="gl">${esc(clip(t.goal,240))}</div>` : '',
+    st==='awaiting_input' ? `<div class="gl aw">🙋 ${esc(t.awaiting_reason||'等待人工决策')}</div>` : '',
+    t.error ? `<div class="gl bad">✗ ${esc(clip(t.error,160))}</div>` : '',
+    rj ? `<div class="gl rej">↩ ${esc(rj.from||'?')} 打回${(t.reject_count||0)>1?' ×'+t.reject_count:''}：${esc(clip(rj.reason||'',140))}</div>` : '',
+    st==='done' && t.summary ? `<div class="gl">✓ ${esc(clip(t.summary,160))}</div>` : ''].join('');
+  const bts=(A ? `<button onclick="oCardAgent('${esc(t.agent)}')">看 ${esc(t.agent)}</button>` : '')
+    + (O.demo ? '' : `<button onclick="const g=ofc.gid;closeOffice();openWorker(g,'${esc(tid)}')">DAG 节点 ▧</button>`);
+  return `<button class="cx" onclick="oCardClose()" aria-label="关闭">✕</button>
+    <h5><span class="chip2" style="--sc:${_SC[st]||'var(--soft)'}">${esc(_SL[st]||st)}</span>${esc(tid)}</h5>
+    <div class="sub">${who}</div>
+    ${time ? `<div class="kv"><b>耗时</b><span>${time}${nrun>1 ? ' · 第 '+nrun+' 次' : ''}</span></div>` : ''}
+    <div class="kv"><b>上游</b><span>${oDeps(ups)}</span></div>
+    <div class="kv"><b>下游</b><span>${oDeps(downs)}</span></div>
+    ${notes}${bts ? `<div class="bts">${bts}</div>` : ''}`;
+}
+function oAgentCardHtml(name){
+  const O=ofc, A=O.agents[name]; if(!A) return null;
+  O.card.el.style.setProperty('--c', A.look.c);
+  const ts=O.job.tasks||[], mine=ts.filter(t=>t.agent===name), ids=f=>mine.filter(f).map(t=>t.task_id);
+  const caps=((O.roster||[]).find(a=>a.name===name)||{}).capabilities||[];
+  const next=ts.filter(t=>!t.agent && (t.status==='pending'||t.status==='ready') && (t.capabilities||[]).some(c=>caps.includes(c))).map(t=>t.task_id);
+  const now=ids(oActive), done=ids(t=>t.status==='done'), bad=ids(t=>t.status==='failed');
+  return `<button class="cx" onclick="oCardClose()" aria-label="关闭">✕</button>
+    <h5><span class="av">${oAvatar(A.look)}</span>${esc(name)}<span class="chip2" style="--sc:${A.look.c}">${esc(A.look.kind)}</span></h5>
+    ${A.role ? `<div class="sub">${esc(A.role)}</div>` : ''}
+    <div class="kv"><b>在做</b><span>${now.length ? oDeps(now) : '待命中'}</span></div>
+    <div class="kv"><b>完成</b><span>${done.length ? done.length+' 个 · '+oDeps(done) : '—'}</span></div>
+    ${bad.length ? `<div class="kv"><b>失败</b><span>${oDeps(bad)}</span></div>` : ''}
+    ${next.length ? `<div class="kv"><b>候补</b><span>${oDeps(next)}</span></div>` : ''}
+    ${O.demo ? '' : `<div class="bts"><button onclick="openAgent('${esc(name)}')">⚙ 配置与 skill</button></div>`}`;
+}
+function oFocusPaint(){
+  const O=ofc; if(!O || !O.job) return;
+  const tid=O.focus, t=tid && O.byId[tid], all=O.job.tasks||[];
+  const ups=new Set(t ? t.needs||[] : []), downs=new Set(t ? all.filter(x=>(x.needs||[]).includes(tid)).map(x=>x.task_id) : []);
+  const mine=new Set(O.focusAgent ? all.filter(x=>x.agent===O.focusAgent).map(x=>x.task_id) : []);
+  Object.entries(O.notes).forEach(([k,el])=>{ el.classList.toggle('sel', k===tid || mine.has(k));
+    el.classList.toggle('up', ups.has(k)); el.classList.toggle('dn', downs.has(k)); });
+  O.desks.forEach(D=>D.el.classList.toggle('hl', !!D.task && (D.task===tid || mine.has(D.task))));
+  O.chars.forEach(c=>{ const on=!c.dying && ((tid && c.task===tid) || (O.focusAgent && c.agent===O.focusAgent));
+    let r=c.el.querySelector('.ring');
+    if(on && !r){ r=document.createElement('div'); r.className='ring'; c.el.prepend(r); }
+    if(!on && r) r.remove(); });
+}
+/* ---- 小互动：接住交接、被点到、打回印章、完成合影、待命区闲聊 ---- */
+function oHop(ch, ms){ if(!ch || ch.anim) return; ch.el.classList.add('catch'); oLater(()=>ch.el.classList.remove('catch'), ms); }
+function oCatch(tid){ const b=ofc.bind[tid]; if(b && b.ch && b.ch.seated) oHop(b.ch, 1100); }
+function oPoke(ch){ oHop(ch, 650); }
+function oStamp(p, text){
+  const O=ofc; if(!O) return;
+  const s=document.createElement('div'); s.className='ostamp'; s.textContent=text; s.style.cssText=`left:${p.x}px; top:${p.y+6}px`;
+  O.fx.appendChild(s); setTimeout(()=>s.remove(), 2900);
+}
+function oPhoto(){
+  const O=ofc; if(!O) return;
+  const f=document.createElement('div'); f.className='ofc-flash'; O.stage.appendChild(f); setTimeout(()=>f.remove(), 900);
+  oFloat({x:800, y:236}, '📸 茄子！', '#b5893f');
+}
+const O_CHAT=[['☕ 来杯咖啡？','好呀 ☕'],['👀 进度咋样？','快了快了'],['💡 有个点子','说来听听'],['🍪 吃饼干吗','来一块！'],
+  ['😴 有点困','伸个懒腰~'],['🎧 听什么呢','白噪音'],['📈 今天好顺','冲冲冲']];
+function oChat(idle){
+  const a=idle[Math.floor(Math.random()*idle.length)], rest=idle.filter(c=>c!==a), b=rest[Math.floor(Math.random()*rest.length)];
+  const side=b.x>OW-70 ? -1 : (b.x<700 ? 1 : (Math.random()<.5 ? -1 : 1));
+  const p={x:Math.max(664, Math.min(944, b.x+side*40)), y:b.y, k:'rug'};
+  const [q,r]=O_CHAT[Math.floor(Math.random()*O_CHAT.length)];
+  oDelay(b, ()=>{}, 5200);   // 先占住 b：有计时器的人物不会被闲逛选中
+  a.spot=p;
+  oMove(a, [p], ()=>{
+    oIdle(a); oEmote(a,''); oFace(a, b.x-a.x); oFace(b, a.x-b.x);
+    oBubble(a, esc(q), 'chat');
+    oDelay(a, ()=>{ oBubble(a,null); oBubble(b, esc(r), 'chat'); oDelay(b, ()=>oBubble(b,null), 1500); }, 1700);
+  });
+}
+/* ---- 演示模式：/?demo=office 用前端模拟的 Job 跑一遍「分派 → 交接 → 等人 → 打回 → 完成 → 庆祝」，不碰后端账本 ---- */
+const DEMO_AGENTS=[
+  {name:'planner', role:'需求拆解与规划', capabilities:['plan'], max_concurrent:1},
+  {name:'researcher', role:'资料调研', capabilities:['research'], max_concurrent:3},
+  {name:'designer', role:'界面设计', capabilities:['design'], max_concurrent:1},
+  {name:'coder', role:'编码实现', capabilities:['code'], max_concurrent:2},
+  {name:'reviewer', role:'代码评审', capabilities:['review'], max_concurrent:1},
+  {name:'tester', role:'测试验收', capabilities:['test'], max_concurrent:1},
+  {name:'writer', role:'文档撰写', capabilities:['doc'], max_concurrent:1},
+  {name:'flow-retro', role:'流程复盘', capabilities:['flow-retro'], max_concurrent:1},
+  {name:'ops', role:'发布部署', capabilities:['deploy'], max_concurrent:1}];
+// [task_id, agent, needs, 时长(轮), 目标]。三路并行调研演示同一 agent 的多个分身；
+// 演出脚本：design 中途等人决策、review 打回 impl-api、test 首次失败后重试
+const DEMO_TASKS=[['plan','planner',[],2,'拆解需求：确定接口范围、界面要点与验收口径'],
+  ['fetch-docs','researcher',['plan'],3,'调研官方文档与竞品接口设计'],
+  ['fetch-issues','researcher',['plan'],4,'收集历史 issue 与用户反馈，归纳痛点'],
+  ['fetch-data','researcher',['plan'],2,'拉取样例数据，整理成测试夹具'],
+  ['design','designer',['plan'],5,'出界面稿与配色方案'],
+  ['impl-api','coder',['fetch-docs','fetch-issues','fetch-data'],3,'按调研结论实现后端接口'],
+  ['impl-ui','coder',['design'],3,'按设计稿实现前端页面'],
+  ['review','reviewer',['impl-api','impl-ui'],2,'评审接口与页面实现，不达标就打回'],
+  ['test','tester',['review'],2,'跑端到端用例并出验收报告'],
+  ['docs','writer',['test'],2,'写上线说明与使用文档']];
+function demoInit(){
+  const sim={tick:0, tasks:DEMO_TASKS.map(([id,agent,needs,len,goal])=>({task_id:id, agent:'', who:agent, needs, len, goal,
+    status:'pending', left:0, started:0, active:null, runs:0, error:'', reject_count:0, rejections:[],
+    cap:DEMO_AGENTS.find(a=>a.name===agent).capabilities})), rejected:false, asked:false, failed:false};
+  demoDispatch(sim); return sim;
+}
+function demoDispatch(sim){
+  const by={}; sim.tasks.forEach(t=>by[t.task_id]=t);
+  sim.tasks.forEach(t=>{ if(t.status==='pending' && t.needs.every(n=>by[n].status==='done')) t.status='ready'; });
+  sim.tasks.forEach(t=>{
+    if(t.status!=='ready') return;
+    const lim=DEMO_AGENTS.find(a=>a.name===t.who).max_concurrent;
+    if(sim.tasks.filter(x=>x.agent===t.who && (x.status==='dispatched'||x.status==='awaiting_input')).length>=lim) return;
+    t.status='dispatched'; t.agent=t.who; t.started=sim.tick; t.left=t.len; t.runs++;
+  });
+}
+function demoStep(sim){
+  sim.tick++;
+  const by={}; sim.tasks.forEach(t=>by[t.task_id]=t);
+  sim.tasks.forEach(t=>{
+    if(t.status==='failed'){ t.status='ready'; t.agent=''; t.len=2; return; }   // 失败后自动重试
+    if(t.status==='awaiting_input'){ if(--t.wait<=0) t.status='dispatched'; return; }
+    if(t.status!=='dispatched') return;
+    if(t.task_id==='design' && !sim.asked && sim.tick-t.started>=2){ sim.asked=true; t.status='awaiting_input'; t.wait=2;
+      t.awaiting_reason='配色要走暖色系还是冷色系？'; return; }
+    if(--t.left>0) return;
+    if(t.task_id==='review' && !sim.rejected){
+      sim.rejected=true; const api=by['impl-api'];
+      api.reject_count=1; api.rejections=[{from:'review', reason:'接口缺少鉴权校验，补上再提交', ts:Date.now()/1000}];
+      api.status='ready'; api.len=2; t.status='pending'; t.agent=''; return;
+    }
+    if(t.task_id==='test' && !sim.failed){ sim.failed=true; t.status='failed'; t.error='2 个用例没过：登录接口偶发超时'; return; }
+    t.status='done'; t.error=''; t.active=(sim.tick-t.started)*2.5;
+  });
+  demoDispatch(sim);
+}
+function demoJob(sim){
+  const ts=sim.tasks.map(t=>({task_id:t.task_id, status:t.status, agent:t.agent, needs:t.needs, capabilities:t.cap, goal:t.goal,
+    elapsed_s:t.status==='dispatched'||t.status==='awaiting_input' ? (sim.tick-t.started)*2.5 : null,
+    timing:{active_s:t.active}, runs:Array(t.runs).fill({}), error:t.error, summary:t.status==='done' ? `产出 ${t.task_id}.md` : '',
+    reject_count:t.reject_count, rejections:t.rejections, escalated:false,
+    awaiting_reason:t.status==='awaiting_input' ? t.awaiting_reason : ''}));
+  const done=ts.filter(t=>t.status==='done').length, complete=done===ts.length;
+  return {goal_id:'demo-office', goal:'演示：从需求拆解到上线文档的完整流水线（前端模拟数据，不读写账本）',
+    tasks:ts, complete, ok:complete, has_failures:false, summary:`${done}/${ts.length} done`};
+}
+try{ if(new URLSearchParams(location.search).get('demo')==='office') setTimeout(()=>openOffice('demo-office', true), 300); }catch(e){}
 </script>
 </body>
 </html>
