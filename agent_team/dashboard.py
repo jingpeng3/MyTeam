@@ -477,6 +477,14 @@ def build_state(paths: Paths) -> dict[str, Any]:
 
 
 _LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
+# /file 产物响应头：产物是 worker（LLM）写的，html/svg 若按原样内联，脚本会跑在看板同源下，
+# 能 fetch /api/state、/api/agent_tail、其它 /file —— 即存储型 XSS。CSP sandbox 把文档放进
+# 不透明源（不给 allow-same-origin），脚本仍可执行以便预览交互页面，但读不到看板任何接口；
+# nosniff 防浏览器把 text/plain 等内容嗅探成 html 执行。
+_ARTIFACT_HEADERS = {
+    "Content-Security-Policy": "sandbox allow-scripts",
+    "X-Content-Type-Options": "nosniff",
+}
 
 
 def _host_name(host_header: str | None) -> str:
@@ -501,11 +509,14 @@ def _make_handler(paths: Paths, host: str = "127.0.0.1"):
         def log_message(self, *args):        # 静音默认 stderr 访问日志
             return
 
-        def _send(self, code: int, body: bytes, ctype: str) -> None:
+        def _send(self, code: int, body: bytes, ctype: str,
+                  headers: dict[str, str] | None = None) -> None:
             self.send_response(code)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
+            for k, v in (headers or {}).items():
+                self.send_header(k, v)
             self.end_headers()
             self.wfile.write(body)
 
@@ -635,7 +646,7 @@ def _make_handler(paths: Paths, host: str = "127.0.0.1"):
             except OSError as e:
                 self._send(500, f"read failed: {e}".encode(), "text/plain")
                 return
-            self._send(200, body, ctype or "application/octet-stream")
+            self._send(200, body, ctype or "application/octet-stream", headers=_ARTIFACT_HEADERS)
 
     return Handler
 
