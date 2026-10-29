@@ -116,6 +116,13 @@ SATISFIED = frozenset({DONE, BYPASSED})                   # 依赖已满足：�
 # PENDING 重跑，并把打回意见与证据作为「凭证」累积注入目标，防止重复错误执行。
 REJECT = "reject"
 
+# Task 的列表字段（__post_init__ 归一/校验用）。元素为字符串的允许单个字符串包装成单元素列表；
+# 元素为对象的（rejections/runs）只接受 null 或列表。DEDUP 的三个是 task_id 引用，保序去重。
+_TASK_STR_LIST_FIELDS = ("capabilities", "needs", "tried_agents", "context_refs",
+                         "see_artifacts", "reject_to", "artifacts", "artifact_warnings")
+_TASK_DICT_LIST_FIELDS = ("rejections", "runs")
+_TASK_DEDUP_FIELDS = frozenset({"needs", "see_artifacts", "reject_to"})
+
 
 @dataclass
 class Task:
@@ -178,6 +185,19 @@ class Task:
         if self.status not in STATUSES:
             raise ValueError(
                 f"task {self.task_id!r} 状态非法: {self.status!r}（合法：{sorted(STATUSES)}）")
+        # 列表字段归一：null→[]、单个字符串→[字符串]，其余非列表类型直接报错。否则 needs: null
+        # 让 validate 抛裸 TypeError、capabilities: "python" 被 set() 拆成单字符永远匹配不上、
+        # context_refs 字符串被逐字符当引用。元素为对象的字段（rejections/runs）不接受标量包装。
+        for fld in _TASK_STR_LIST_FIELDS + _TASK_DICT_LIST_FIELDS:
+            v = getattr(self, fld)
+            if not (v is None or isinstance(v, (list, tuple))
+                    or (isinstance(v, str) and fld in _TASK_STR_LIST_FIELDS)):
+                raise ValueError(
+                    f"task {self.task_id!r} 字段 {fld} 必须是列表，得到 {type(v).__name__}: {v!r}")
+            v = _as_list(v)
+            if fld in _TASK_DEDUP_FIELDS:    # 重复 needs 会让 Kahn 入度翻倍、误报成环；保序去重
+                v = [x for i, x in enumerate(v) if x not in v[:i]]
+            setattr(self, fld, v)
         for fld in ("attempts", "provision_attempts", "max_retries",
                     "timeout_s", "max_lifetime_s", "awaiting_timeout_s",
                     "max_rejects", "reject_count", "fanout_max_parallel"):
