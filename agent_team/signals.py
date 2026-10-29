@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .config import Paths, atomic_write_json
+from .config import Paths, atomic_write_json, read_json_or
 from .models import Result, DONE, FAILED, REJECT
 
 log = logging.getLogger(__name__)
@@ -120,20 +120,54 @@ def write_inbox(paths: Paths, agent: str, goal_id: str,
     return p
 
 
+def _is_same_task_inbox(f: Path, task_id: str) -> bool:
+    """inbox 文件 f 是否是 task_id 的在途信号（不论属于哪个 goal）。
+
+    task_id 允许含 `__`，只比文件名后缀会误判：`job1__x__fetch.json`（task=x__fetch）也以
+    `__fetch.json` 结尾。故优先读信号体里的 `task_id` 字段精确比较（to_signal 必写此字段；
+    信号体不含 goal_id，goal 由规范文件名 `<goal>__<task>.json` 给出）。读不出 / 半截写入 /
+    字段缺失时按文件名后缀回退——宁可多判一次「归属不明」，也不能把别人的交付吞掉。
+    """
+    if not f.name.endswith(f"__{task_id}.json"):
+        return False   # 规范名必以 __<task_id>.json 结尾；不满足者不可能是本 task 的信号
+    d = read_json_or(f, None)
+    tid = d.get("task_id") if isinstance(d, dict) else None
+    if isinstance(tid, str) and tid:
+        return tid == task_id
+    return True        # 回退：文件名后缀已命中，保守视为同 task
+
+
 def _other_inflight_goals(indir: Path, goal_id: str, task_id: str) -> list[str]:
     """inbox 里同 task_id、但属于**别的** goal 的在途信号文件名（inbox 信号在任务在途期间一直存在）。
 
-    逐项比对文件名而非 glob：task_id 里若含 `[`/`*` 等字符，glob 会误匹配。
+    逐项比对而非 glob：task_id 里若含 `[`/`*` 等字符，glob 会误匹配。
     """
     if not indir.is_dir():
         return []
     own = signal_filename(goal_id, task_id)
-    suffix = f"__{task_id}.json"
     try:
         return sorted(f.name for f in indir.iterdir()
-                      if f.name.endswith(suffix) and f.name != own and f.is_file())
+                      if f.name != own and f.is_file() and _is_same_task_inbox(f, task_id))
     except OSError:
         return []
+
+
+def _quarantine_ambiguous(alt: Path, goal_id: str, others: list[str]) -> None:
+    """归属不明的裸名交付改名隔离：不再被任何一方当活信号读到，也保留原始字节供取证。
+
+    只 return None 不够：一旦另一方被判交付缺失、reclaim 清掉了它的 inbox，本方下一轮就
+    「看不到别人在途」而照常采纳——竞态窗口只是缩小、并未关上。隔离后两边都按交付缺失
+    走原有重试流程。改名失败（竞态/权限）也绝不采纳，下一轮再试。
+    """
+    dest = alt.with_suffix(f".ambiguous.{int(time.time())}.json")
+    try:
+        alt.rename(dest)
+    except OSError:
+        log.warning("outbox 裸名信号 %s 归属不明，隔离改名失败、本轮不采纳（goal=%s 另有在途 %s）",
+                    alt.name, goal_id, others)
+        return
+    log.warning("outbox 裸名信号归属不明（inbox 另有同 task 在途信号 %s），已隔离取证：%s（goal=%s）",
+                others, dest.name, goal_id)
 
 
 def _adopt_bare_outbox(outdir: Path, goal_id: str, task_id: str,
@@ -151,10 +185,11 @@ def _adopt_bare_outbox(outdir: Path, goal_id: str, task_id: str,
 
     另有归属约束：裸名不带 goal，同一模板拉出的多个 Job（`plan X --as job1/job2`）在同一
     agent 上并发跑同名 task 时，无法判断这份裸名交付属于谁。若 inbox（`indir`）里还有**别的**
-    goal 的同 task_id 在途信号，归属不明 → 不采纳（按未交付处理）；否则 job2 会吞掉 job1 的
-    交付、误判 DONE 并回收在跑的 pane，job1 反被判交付缺失而重试。
+    goal 的同 task_id 在途信号，归属不明 → 隔离改名为 `<task_id>.ambiguous.<ts>.json`、不采纳
+    （两边都按交付缺失走重试）；否则 job2 会吞掉 job1 的交付、误判 DONE 并回收在跑的 pane，
+    job1 反被判交付缺失而重试。
 
-    改名失败（竞态/权限）不阻断——仍返回裸名路径让调用方读到内容。
+    采纳时改名失败（竞态/权限）不阻断——仍返回裸名路径让调用方读到内容。
     """
     alt = outdir / f"{task_id}.json"
     if since is None or not alt.exists():
@@ -163,11 +198,13 @@ def _adopt_bare_outbox(outdir: Path, goal_id: str, task_id: str,
         if alt.stat().st_mtime < since:
             log.warning("outbox 存在同名裸名信号但早于本次派发，判为历史残留、不采纳：%s", alt)
             return None
-        others = _other_inflight_goals(indir, goal_id, task_id) if indir is not None else []
-        if others:
-            log.warning("outbox 存在裸名信号 %s，但 inbox 里另有同 task 的在途信号 %s，"
-                        "归属不明、不采纳（goal=%s）", alt.name, others, goal_id)
-            return None
+    except OSError:
+        return None
+    others = _other_inflight_goals(indir, goal_id, task_id) if indir is not None else []
+    if others:
+        _quarantine_ambiguous(alt, goal_id, others)
+        return None
+    try:
         dest = outdir / signal_filename(goal_id, task_id)
         alt.rename(dest)
         log.warning("outbox 信号名不规范（裸 task_id），已归位采纳：%s → %s", alt.name, dest.name)
