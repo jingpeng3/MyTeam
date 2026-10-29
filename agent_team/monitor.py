@@ -98,6 +98,16 @@ def _on_alive(paths: Paths, gid: str, task: Task, info: dict, hname: str,
     return resumed
 
 
+def _awaiting_timeout_reason(task: Task, info: dict, now: float) -> str | None:
+    """等人任务的唯一超时判据：now - awaiting_since 超过 awaiting 上限才判失败，否则 None。
+    缺 awaiting_since 时以本轮为锚点补上（调用方负责标 rt_dirty 落盘）。"""
+    aw_since = info.setdefault("awaiting_since", now)
+    aw_timeout = task.awaiting_timeout_s or AWAITING_INPUT_TIMEOUT
+    if now - aw_since > aw_timeout:
+        return f"awaiting human input timeout {int(now - aw_since)}s (> {aw_timeout}s)"
+    return None
+
+
 def _on_ready(paths: Paths, gid: str, task: Task, info: dict, hname: str, st: str,
               ostate: str, started: float, now: float, prev_agent: str, v: _Verdict) -> None:
     """herdr 报 idle/done（turn 已结束）且无可用 outbox：致命信号 → 等人提问 → 宽限后判交付缺失/损坏。"""
@@ -119,13 +129,9 @@ def _on_ready(paths: Paths, gid: str, task: Task, info: dict, hname: str, st: st
             ledger.log_event(paths, "task_awaiting_input", goal_id=gid,
                              task_id=task.task_id, agent=prev_agent, question=question)
             v.changed = True
-        info.setdefault("awaiting_since", now)
         info["awaiting_reason"] = question
         # 有界上限：等人也不能无限占容量，超过 awaiting 上限仍判失败回收
-        aw_since = info["awaiting_since"]
-        aw_timeout = task.awaiting_timeout_s or AWAITING_INPUT_TIMEOUT
-        if now - aw_since > aw_timeout:
-            v.fail_reason = f"awaiting human input timeout {int(now - aw_since)}s (> {aw_timeout}s)"
+        v.fail_reason = _awaiting_timeout_reason(task, info, now)
         return
     idle_since = info.get("idle_since") or now
     info["idle_since"] = idle_since
@@ -171,6 +177,11 @@ def _judge_no_outbox(paths: Paths, gid: str, task: Task, info: dict, ostate: str
             started = now     # 刚恢复：硬上限按新时钟算，否则本轮底部守卫会把刚恢复的任务当场误杀
     elif st in herdr.READY_STATES:
         _on_ready(paths, gid, task, info, hname, st, ostate, started, now, prev_agent, v)
+    elif task.status == AWAITING_INPUT:
+        # unknown + 等人：pane 本就静默、心跳不会刷新，不能按 last_alive 陈旧度判死——
+        # 否则一次 herdr 抖动就关 pane、白耗重试、丢掉待答问题。只按 awaiting 上限判。
+        v.rt_dirty = "awaiting_since" not in info
+        v.fail_reason = _awaiting_timeout_reason(task, info, now)
     elif now - last_alive > eff_timeout:
         # unknown/无法归类：用心跳陈旧度判「疑似静默死亡」，快速回收，
         # 不再干等绝对上限（未设 timeout_s 时可达 2700s，会长期霸占全局 agent 容量）。
