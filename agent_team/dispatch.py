@@ -56,18 +56,35 @@ def select_agent(paths: Paths, task: Task, active: dict[tuple[str, str], int],
     占用，避免同一 agent 在本 Job 内被挤爆或重复计数。容量按 (goal_id, agent) 独立结算——
     **不跨 Job 共享**：别的 Job 占满某 agent 不影响本 Job 仍可跑满自己的 max_concurrent。
     `agents` 为本轮预加载的 manifest 列表（避免逐节点重读 agent.yaml）。
+
+    已指定 task.agent（预分派，或 reject 重置 / retask --force 后残留的 pin）时：
+    - pin 的 agent 仍在 → 沿用，但**同样过容量闸**：满了返回 None 等容量，绝不绕过 max_concurrent；
+    - pin 的 agent 已不在（被删/manifest 损坏）→ 记事件、清 pin，回退到按能力挑选——
+      不能裸 load_manifest 抛 FileNotFoundError，那会冲出 run_dispatch_round 打断整轮 tick/tick_all。
     """
-    if task.agent:                       # 已指定(如预分派)则沿用
-        return load_manifest(paths, task.agent)
-    cands = eligible_candidates(paths, task, agents=agents)
+    pool = agents if agents is not None else registry.list_agents(paths)
+
+    def free_of(m: AgentManifest) -> int:
+        used = active.get((goal_id, m.name), 0) + reserved.get((goal_id, m.name), 0)
+        return m.max_concurrent - used
+
+    if task.agent:                       # 已指定(如预分派)则沿用，但容量照算
+        pinned = next((m for m in pool if m.name == task.agent), None)
+        if pinned is not None:
+            return pinned if free_of(pinned) > 0 else None
+        log.warning("任务 %s/%s 指定的 agent %s 不存在，回退按能力选人",
+                    goal_id, task.task_id, task.agent)
+        ledger.log_event(paths, "pinned_agent_missing", goal_id=goal_id,
+                   task_id=task.task_id, agent=task.agent)
+        task.agent = ""                  # 清掉失效 pin（同 monitor 重试换人），分派成功后由 _commit_dispatch 回填
+    cands = eligible_candidates(paths, task, agents=pool)
 
     def least_loaded_free(lst: list[AgentManifest]) -> AgentManifest | None:
         # 挑「剩余空闲容量最多」的候选（负载均衡），并列时保持 eligible 稳定序——
         # 避免 first-fit 把串行/瓶颈层恒定压向字母序最靠前的同能力 agent。
         best, best_free = None, 0
         for m in lst:
-            used = active.get((goal_id, m.name), 0) + reserved.get((goal_id, m.name), 0)
-            free = m.max_concurrent - used
+            free = free_of(m)
             if free > best_free:
                 best, best_free = m, free
         return best
