@@ -31,21 +31,57 @@ English · [简体中文](README.md)
 
 ## Quick Start
 
-**Requirements:** Python 3.11+, [uv](https://github.com/astral-sh/uv), [herdr](https://herdr.dev)
+### 1. Install the prerequisites
+
+| Dependency | Used for | Install |
+|---|---|---|
+| [uv](https://docs.astral.sh/uv/) | Manages Python and the virtualenv, runs the `team` CLI | `brew install uv`, or `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
+| Python 3.11+ | Runs the framework | uv downloads one automatically if none is found; or run `uv python install 3.11` |
+| [herdr](https://herdr.dev) | Opens panes for workers and manages their lifecycle | `brew install herdr`, or `curl -fsSL https://herdr.dev/install.sh \| sh` ([other methods](https://herdr.dev/docs/install/)) |
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | Default runtime for the coordinator session and workers (`cli: claude` in `team.yaml`) | Install per the official docs, then run `claude` once to log in |
+
+### 2. Clone and self-check
 
 ```bash
 git clone https://github.com/jingpeng3/MyTeam.git
 cd MyTeam
 
-brew install herdr          # macOS; see herdr.dev for other platforms
-uv run team dashboard       # open http://127.0.0.1:8787
+herdr --version
+claude --version
+uv run team agent list      # first run creates .venv and installs deps; printing the agent list means success
 ```
 
-Then open this directory in herdr / Claude Code and simply talk to it — no commands to memorize:
+**You don't need to create a Python virtualenv yourself.** On its first run, `uv run` creates `.venv` in the repo root from `uv.lock` and installs the dependencies, and it re-syncs automatically when they change. To install ahead of time, run `uv sync` (or `uv sync --extra dev` for dev tools).
+
+> [!TIP]
+> On a corporate network or with slow PyPI access, point uv at a mirror first, e.g. `export UV_DEFAULT_INDEX=https://<your-mirror>/simple`, or set it in `~/.config/uv/uv.toml`. If uv can't download Python, use one you already have: `uv run --python /path/to/python3.11 team agent list`.
+
+### 3. Start the coordinator session
+
+```bash
+herdr                       # enter herdr (starts the background server automatically)
+# inside a herdr pane:
+cd /path/to/MyTeam
+claude                      # this session is the coordinator
+```
+
+- Start `claude` from the **repo root**: the `team-build` / `team-run` skills live in the project-level `.claude/skills/` and won't trigger from another directory.
+- Start it **inside a herdr pane** if you can: the framework uses the `HERDR_PANE_ID` / `HERDR_SESSION` variables herdr injects to recognize the coordinator's own pane (so it is never recycled) and to keep workers in the same session. Outside herdr, workers land in the `default` session.
+
+Then simply talk to it — no commands to memorize:
 
 > 🗣️ “Build me a team that collects sources A and B in parallel, then merges both into a single HTML report.”
 
 The agent clarifies the goal, designs the DAG, creates the workers, and dry-runs the plan before spawning anything for real.
+
+### 4. Open the dashboard (optional)
+
+```bash
+uv run team dashboard       # open http://127.0.0.1:8787
+```
+
+> [!WARNING]
+> Workers run with `--dangerously-skip-permissions` by default (see `defaults.runtime.flags` in `team.yaml`), so they read and write files and run commands without asking. To turn it off, remove the flag from `team.yaml`, or give a single agent a **non-empty** `runtime.flags` list in its `agent.yaml` to replace the default (`flags: []` has no effect; empty values fall back to the team default).
 
 ## Features
 
@@ -112,9 +148,9 @@ docs/videos/              product intro video for the README
 
 ## Install the team CLI
 
-Skills and the coordinator invoke the CLI as `uv run team …` from the repo root. uv creates `.venv` on first run and always executes this repo's code — no global install required.
+**You can skip this if you follow Quick Start.** Skills and the coordinator invoke the CLI as `uv run team …` from the repo root. uv creates `.venv` on first run and always executes this repo's code — no global install required.
 
-To install a global `team` command:
+If you want to type `team` from any directory, install it as a global command:
 
 ```bash
 scripts/install.sh           # install / reinstall the CLI (idempotent)
@@ -122,7 +158,9 @@ scripts/install.sh --dev     # also create a dev .venv (pytest / ruff)
 scripts/install.sh --uninstall
 ```
 
-The script uses `uv tool install --editable .` (falling back to pipx) to create a dedicated environment and put `team` on `~/.local/bin`, then verifies PATH and herdr. It deliberately avoids `pip install`: Homebrew and other system Pythons are externally managed (PEP 668) and will reject it. Editable installs pick up code changes immediately; re-run the script after changing dependencies or entry points in `pyproject.toml`.
+The script uses `uv tool install --editable .` (falling back to pipx) to create a dedicated environment and put `team` on `~/.local/bin`, then verifies PATH and herdr. It deliberately avoids `pip install`: Homebrew and other system Pythons are externally managed (PEP 668) and will reject it. Editable installs pick up code changes immediately; re-run the script after changing dependencies or entry points in `pyproject.toml` (the in-repo `.venv` is re-synced by `uv run` on its own).
+
+If `~/.local/bin` is not on your PATH, the script says so and exits. Add `export PATH="$HOME/.local/bin:$PATH"` to your shell config (e.g. `~/.zshrc`) and open a new terminal.
 
 > [!NOTE]
 > The package is also named `agent-team`. A global install replaces any `team` command previously installed from another checkout.
@@ -157,7 +195,7 @@ Scheduling commands accept `--dry-run`: they write signals without spawning work
 
 ## Talk to your agents
 
-Four built-in skills in `.claude/skills/` cover the full loop, including self-improvement:
+Four built-in framework skills in `.claude/skills/` cover the full loop, including self-improvement (`find-skills` in the same directory is a generic skill-search tool, not part of the framework flow):
 
 | Skill | Trigger | Responsibility |
 |---|---|---|

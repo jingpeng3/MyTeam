@@ -31,21 +31,57 @@
 
 ## 快速开始
 
-**前置条件**：Python 3.11+、[uv](https://github.com/astral-sh/uv)、[herdr](https://herdr.dev)
+### 1. 安装前置依赖
+
+| 依赖 | 用途 | 安装 |
+|---|---|---|
+| [uv](https://docs.astral.sh/uv/) | 管理 Python 与虚拟环境、运行 `team` CLI | `brew install uv`，或 `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
+| Python 3.11+ | 运行框架 | 本机没有时 uv 会自动下载；也可手动 `uv python install 3.11` |
+| [herdr](https://herdr.dev) | 为 worker 开 pane、管理生命周期 | `brew install herdr`，或 `curl -fsSL https://herdr.dev/install.sh \| sh`（[其他方式](https://herdr.dev/docs/install/)） |
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | 协调者会话与 worker 的默认运行时（`team.yaml` 中 `cli: claude`） | 按官方文档安装，并先运行一次 `claude` 完成登录 |
+
+### 2. 克隆仓库并自检
 
 ```bash
 git clone https://github.com/jingpeng3/MyTeam.git
 cd MyTeam
 
-brew install herdr          # macOS；其他平台见 herdr.dev
-uv run team dashboard       # 打开 http://127.0.0.1:8787
+herdr --version
+claude --version
+uv run team agent list      # 首次运行会自动创建 .venv 并安装依赖，输出 agent 列表即成功
 ```
 
-然后在 herdr / Claude Code 中打开本目录，直接对话即可，不用记命令：
+**Python 虚拟环境不用手动创建。** `uv run` 第一次执行时会按 `uv.lock` 在仓库根建好 `.venv` 并装上依赖，之后依赖变化也会自动同步。想提前装好可以运行 `uv sync`（带开发依赖用 `uv sync --extra dev`）。
+
+> [!TIP]
+> 内网或访问 PyPI 较慢时，先给 uv 配置镜像源，例如 `export UV_DEFAULT_INDEX=https://<你的镜像>/simple`，或写进 `~/.config/uv/uv.toml`。uv 自动下载 Python 失败时，可改用本机已有的 Python：`uv run --python /path/to/python3.11 team agent list`。
+
+### 3. 启动协调者会话
+
+```bash
+herdr                       # 进入 herdr（自动拉起后台 server）
+# 在 herdr 的 pane 里：
+cd /path/to/MyTeam
+claude                      # 当前会话就是协调者
+```
+
+- 必须在**仓库根目录**启动 `claude`：`team-build` / `team-run` 等 skill 放在项目级 `.claude/skills/`，换目录就触发不了。
+- 建议在 **herdr pane 内**启动：框架通过 herdr 注入的 `HERDR_PANE_ID` / `HERDR_SESSION` 识别协调者自己的 pane（回收时绝不关它），并让 worker 落在同一个 session。不在 herdr 内启动时，worker 会落到 `default` session。
+
+然后直接对话即可，不用记命令：
 
 > 🗣️ 「建个团队，帮我并行收集 A、B 两份材料，再合并成一份 HTML 报告」
 
 agent 会先澄清需求、规划 DAG、创建 agent 并 dry-run，确认后再真正拉起 worker 执行。
+
+### 4. 打开看板（可选）
+
+```bash
+uv run team dashboard       # 打开 http://127.0.0.1:8787
+```
+
+> [!WARNING]
+> worker 默认带 `--dangerously-skip-permissions` 运行（见 `team.yaml` 的 `defaults.runtime.flags`），会不经确认读写文件、执行命令。要关掉它，在 `team.yaml` 里删掉这个 flag；或在单个 agent 的 `agent.yaml` 里给 `runtime.flags` 写一个**非空**列表来整体替换默认值（写 `flags: []` 不生效，空值会沿用团队默认）。
 
 ## 核心特性
 
@@ -112,9 +148,9 @@ docs/videos/              README 产品介绍视频
 
 ## 安装 team CLI
 
-skill 与协调者都在仓库根用 `uv run team …` 调用 CLI：uv 首次运行会自动建 `.venv` 并装好本仓库，跑的始终是本仓库代码，不依赖全局安装。
+**按快速开始走就不需要这一步。** skill 与协调者都在仓库根用 `uv run team …` 调用 CLI：uv 首次运行会自动建 `.venv` 并装好本仓库，跑的始终是本仓库代码，不依赖全局安装。
 
-如果想把 `team` 装成全局命令：
+如果想在任意目录直接敲 `team`，再把它装成全局命令：
 
 ```bash
 scripts/install.sh           # 安装 / 重装 team CLI（可重复执行）
@@ -122,7 +158,9 @@ scripts/install.sh --dev     # 另建开发环境 .venv（pytest / ruff）
 scripts/install.sh --uninstall
 ```
 
-脚本用 `uv tool install --editable .`（没有 uv 时退回 pipx）为 CLI 建独立环境，把 `team` 装到 `~/.local/bin`，装完自检 PATH 与 herdr。不用 `pip install`：Homebrew 等系统 Python 是 externally-managed（PEP 668），直接装会被拒。editable 安装下改代码即时生效；改了 `pyproject.toml` 的依赖或入口后重跑一次脚本即可。
+脚本用 `uv tool install --editable .`（没有 uv 时退回 pipx）为 CLI 建独立环境，把 `team` 装到 `~/.local/bin`，装完自检 PATH 与 herdr。不用 `pip install`：Homebrew 等系统 Python 是 externally-managed（PEP 668），直接装会被拒。editable 安装下改代码即时生效；改了 `pyproject.toml` 的依赖或入口后重跑一次脚本即可（仓库内的 `.venv` 由 `uv run` 自动同步，不用管）。
+
+`~/.local/bin` 不在 PATH 中时脚本会提示并退出，把 `export PATH="$HOME/.local/bin:$PATH"` 加进 `~/.zshrc` 等 shell 配置后重开终端即可。
 
 > [!NOTE]
 > 包名同为 `agent-team`。全局安装会覆盖其他仓库此前安装的 `team` 命令。
@@ -157,7 +195,7 @@ scripts/install.sh --uninstall
 
 ## 与 Agent 对话
 
-`.claude/skills/` 下内置四个 skill，覆盖从搭团队到跑完再到自我增强的完整闭环：
+`.claude/skills/` 下内置四个框架 skill，覆盖从搭团队到跑完再到自我增强的完整闭环（同目录的 `find-skills` 是通用的 skill 搜索工具，不属于框架流程）：
 
 | Skill | 触发方式 | 职责 |
 |---|---|---|
