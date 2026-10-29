@@ -120,8 +120,24 @@ def write_inbox(paths: Paths, agent: str, goal_id: str,
     return p
 
 
+def _other_inflight_goals(indir: Path, goal_id: str, task_id: str) -> list[str]:
+    """inbox 里同 task_id、但属于**别的** goal 的在途信号文件名（inbox 信号在任务在途期间一直存在）。
+
+    逐项比对文件名而非 glob：task_id 里若含 `[`/`*` 等字符，glob 会误匹配。
+    """
+    if not indir.is_dir():
+        return []
+    own = signal_filename(goal_id, task_id)
+    suffix = f"__{task_id}.json"
+    try:
+        return sorted(f.name for f in indir.iterdir()
+                      if f.name.endswith(suffix) and f.name != own and f.is_file())
+    except OSError:
+        return []
+
+
 def _adopt_bare_outbox(outdir: Path, goal_id: str, task_id: str,
-                       since: float | None) -> Path | None:
+                       since: float | None, indir: Path | None = None) -> Path | None:
     """宽容采纳「名字写错」的交付：worker 偶发把信号写成裸 `<task_id>.json`。
 
     agent persona 模板历史上教的正是这个裸名（已修），故这类错名会零星复现；而产物本身
@@ -133,6 +149,11 @@ def _adopt_bare_outbox(outdir: Path, goal_id: str, task_id: str,
       2) 采纳即**改名为规范名**后返回：既让 clear_task_signals 能正常回收（否则留尸），
          也把「目录里裸名文件越积越多」的问题一并自愈。
 
+    另有归属约束：裸名不带 goal，同一模板拉出的多个 Job（`plan X --as job1/job2`）在同一
+    agent 上并发跑同名 task 时，无法判断这份裸名交付属于谁。若 inbox（`indir`）里还有**别的**
+    goal 的同 task_id 在途信号，归属不明 → 不采纳（按未交付处理）；否则 job2 会吞掉 job1 的
+    交付、误判 DONE 并回收在跑的 pane，job1 反被判交付缺失而重试。
+
     改名失败（竞态/权限）不阻断——仍返回裸名路径让调用方读到内容。
     """
     alt = outdir / f"{task_id}.json"
@@ -141,6 +162,11 @@ def _adopt_bare_outbox(outdir: Path, goal_id: str, task_id: str,
     try:
         if alt.stat().st_mtime < since:
             log.warning("outbox 存在同名裸名信号但早于本次派发，判为历史残留、不采纳：%s", alt)
+            return None
+        others = _other_inflight_goals(indir, goal_id, task_id) if indir is not None else []
+        if others:
+            log.warning("outbox 存在裸名信号 %s，但 inbox 里另有同 task 的在途信号 %s，"
+                        "归属不明、不采纳（goal=%s）", alt.name, others, goal_id)
             return None
         dest = outdir / signal_filename(goal_id, task_id)
         alt.rename(dest)
@@ -165,7 +191,8 @@ def read_outbox_ex(paths: Paths, agent: str, goal_id: str,
     """
     p = paths.outbox(agent) / signal_filename(goal_id, task_id)
     if not p.exists():
-        adopted = _adopt_bare_outbox(paths.outbox(agent), goal_id, task_id, since)
+        adopted = _adopt_bare_outbox(paths.outbox(agent), goal_id, task_id, since,
+                                     indir=paths.inbox(agent))
         if adopted is None:
             return None, "missing"
         p = adopted
