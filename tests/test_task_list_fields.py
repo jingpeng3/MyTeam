@@ -26,6 +26,12 @@ def test_string_wrapped_not_split():
     assert t.needs == ["b"]
 
 
+def test_blank_strings_treated_as_empty():
+    t = Task(task_id="a", goal="x", capabilities="", needs="  ", context_refs=["r", " ", ""])
+    assert t.capabilities == [] and t.needs == [] and t.context_refs == ["r"]
+    assert Task(task_id="a", goal="x", needs=["b", ""]).needs == ["b"]
+
+
 def test_tuple_becomes_list():
     assert Task(task_id="a", goal="x", needs=("b", "c")).needs == ["b", "c"]
 
@@ -92,6 +98,14 @@ def test_plan_null_needs_and_dup_needs_load(proj):
     b = Board.load(Paths(proj), "demo")
     assert b.tasks["a"].needs == [] and b.tasks["a"].capabilities == ["py"]
     assert b.tasks["b"].needs == ["a"]
+
+
+def test_plan_blank_capabilities_and_needs_load_with_nocap_warning(proj, capsys):
+    f = _plan(proj, [{"task_id": "a", "goal": "x", "capabilities": "", "needs": ""}])
+    assert cli.main(["plan", f]) == 0
+    t = Board.load(Paths(proj), "demo").tasks["a"]
+    assert t.capabilities == [] and t.needs == []
+    assert "未声明 capabilities" in capsys.readouterr().err
 
 
 def test_plan_bad_list_type_one_line_error(proj, capsys):

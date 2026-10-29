@@ -195,6 +195,8 @@ class Task:
                 raise ValueError(
                     f"task {self.task_id!r} 字段 {fld} 必须是列表，得到 {type(v).__name__}: {v!r}")
             v = _as_list(v)
+            if fld in _TASK_STR_LIST_FIELDS:  # 空白串视同未填：`capabilities: ""` 仍走 nocap、`needs: ""` 仍是无依赖
+                v = [x for x in v if not (isinstance(x, str) and not x.strip())]
             if fld in _TASK_DEDUP_FIELDS:    # 重复 needs 会让 Kahn 入度翻倍、误报成环；保序去重
                 v = [x for i, x in enumerate(v) if x not in v[:i]]
             setattr(self, fld, v)
