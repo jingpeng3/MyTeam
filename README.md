@@ -27,9 +27,13 @@ https://github.com/user-attachments/assets/1b53cbf3-7750-446b-a3b9-35708019d7a1
 
 <p align="center"><sub>▶ 产品介绍视频（53s） · <a href="https://github.com/user-attachments/assets/1b53cbf3-7750-446b-a3b9-35708019d7a1">浏览器直接打开</a> · <a href="docs/videos/teams-control-intro.mp4">下载到本地</a> · <a href="docs/images/teams-control-intro.jpg">封面图</a></sub></p>
 
-[![TEAMS 办公室视图](docs/images/office.png)](docs/videos/office-demo.mp4)
+![TEAMS 办公室视图](docs/images/office.png)
 
-<p align="center"><sub>办公室视图：进行中的 Job 化身一间办公室，Agent 领任务、交接、等人决策、被打回、完成后全员庆祝 · ▶ 演示录屏（59s）：点击截图，或 <a href="https://cdn.jsdelivr.net/gh/jingpeng3/MyTeam@main/docs/videos/office-demo.mp4">浏览器直接打开</a> · <a href="docs/videos/office-demo.mp4">下载到本地</a> · 本地打开 <code>/?demo=office</code> 可重播</sub></p>
+<p align="center"><sub>办公室视图：进行中的 Job 化身一间办公室，Agent 领任务、交接、等人决策、被打回、完成后全员庆祝</sub></p>
+
+https://github.com/user-attachments/assets/3ff89916-0ddc-499f-bbd1-09a2dba56560
+
+<p align="center"><sub>▶ 办公室视图演示（59s） · <a href="docs/videos/office-demo.mp4">下载到本地</a> · 本地打开 <code>/?demo=office</code> 可重播</sub></p>
 
 ## 快速开始
 

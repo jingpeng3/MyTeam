@@ -27,9 +27,13 @@ https://github.com/user-attachments/assets/1b53cbf3-7750-446b-a3b9-35708019d7a1
 
 <p align="center"><sub>▶ Product intro video (53s) · <a href="https://github.com/user-attachments/assets/1b53cbf3-7750-446b-a3b9-35708019d7a1">Open in browser</a> · <a href="docs/videos/teams-control-intro.mp4">Download</a> · <a href="docs/images/teams-control-intro.jpg">Cover image</a></sub></p>
 
-[![TEAMS office view](docs/images/office.png)](docs/videos/office-demo.mp4)
+![TEAMS office view](docs/images/office.png)
 
-<p align="center"><sub>The office view: a running job becomes an office where agents pick up tasks, hand off work, wait for decisions, get rejected, and celebrate when everything is done · ▶ Demo recording (59s): click the screenshot or <a href="https://cdn.jsdelivr.net/gh/jingpeng3/MyTeam@main/docs/videos/office-demo.mp4">open in browser</a> · <a href="docs/videos/office-demo.mp4">Download</a> · open <code>/?demo=office</code> locally to replay</sub></p>
+<p align="center"><sub>The office view: a running job becomes an office where agents pick up tasks, hand off work, wait for decisions, get rejected, and celebrate when everything is done.</sub></p>
+
+https://github.com/user-attachments/assets/3ff89916-0ddc-499f-bbd1-09a2dba56560
+
+<p align="center"><sub>▶ Office view demo (59s) · <a href="docs/videos/office-demo.mp4">Download</a> · open <code>/?demo=office</code> locally to replay</sub></p>
 
 ## Quick Start
 
