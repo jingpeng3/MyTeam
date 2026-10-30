@@ -31,7 +31,7 @@
 
 [![TEAMS 办公室视图](docs/images/office.png)](docs/videos/office-demo.mp4)
 
-<p align="center"><sub>办公室视图：进行中的 Job 化身一间办公室，Agent 领任务、交接、等人决策、被打回、完成后全员庆祝 · ▶ 演示录屏（59s）：点击截图，或 <a href="https://github.com/jingpeng3/MyTeam/raw/main/docs/videos/office-demo.mp4">浏览器直接打开</a> · <a href="docs/videos/office-demo.mp4">下载到本地</a> · 本地打开 <code>/?demo=office</code> 可重播</sub></p>
+<p align="center"><sub>办公室视图：进行中的 Job 化身一间办公室，Agent 领任务、交接、等人决策、被打回、完成后全员庆祝 · ▶ 演示录屏（59s）：点击截图，或 <a href="https://cdn.jsdelivr.net/gh/jingpeng3/MyTeam@main/docs/videos/office-demo.mp4">浏览器直接打开</a> · <a href="docs/videos/office-demo.mp4">下载到本地</a> · 本地打开 <code>/?demo=office</code> 可重播</sub></p>
 
 ## 快速开始
 

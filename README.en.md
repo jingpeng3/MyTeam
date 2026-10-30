@@ -31,7 +31,7 @@ English · [简体中文](README.md)
 
 [![TEAMS office view](docs/images/office.png)](docs/videos/office-demo.mp4)
 
-<p align="center"><sub>The office view: a running job becomes an office where agents pick up tasks, hand off work, wait for decisions, get rejected, and celebrate when everything is done · ▶ Demo recording (59s): click the screenshot or <a href="https://github.com/jingpeng3/MyTeam/raw/main/docs/videos/office-demo.mp4">open in browser</a> · <a href="docs/videos/office-demo.mp4">Download</a> · open <code>/?demo=office</code> locally to replay</sub></p>
+<p align="center"><sub>The office view: a running job becomes an office where agents pick up tasks, hand off work, wait for decisions, get rejected, and celebrate when everything is done · ▶ Demo recording (59s): click the screenshot or <a href="https://cdn.jsdelivr.net/gh/jingpeng3/MyTeam@main/docs/videos/office-demo.mp4">open in browser</a> · <a href="docs/videos/office-demo.mp4">Download</a> · open <code>/?demo=office</code> locally to replay</sub></p>
 
 ## Quick Start
 
