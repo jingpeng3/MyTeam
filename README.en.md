@@ -29,6 +29,10 @@ English · [简体中文](README.md)
 
 <p align="center"><sub>▶ Product intro video (53s) · <a href="https://github.com/user-attachments/assets/1b53cbf3-7750-446b-a3b9-35708019d7a1">Open in browser</a> · <a href="docs/videos/teams-control-intro.mp4">Download</a> · <a href="docs/images/teams-control-intro.jpg">Cover image</a></sub></p>
 
+![TEAMS office view](docs/images/office.png)
+
+<p align="center"><sub>The office view: a running job becomes an office where agents pick up tasks, hand off work, wait for decisions, get rejected, and celebrate when everything is done · <a href="docs/videos/office-demo.mp4">▶ Demo recording (59s)</a> · open <code>/?demo=office</code> locally to replay</sub></p>
+
 ## Quick Start
 
 ### 1. Install the prerequisites
