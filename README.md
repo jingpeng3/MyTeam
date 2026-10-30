@@ -23,9 +23,7 @@
 
 <p align="center"><sub>实时看板：任务流水线、每个 Job 的 DAG、Agent 名册与可复用流程模板（示例数据）</sub></p>
 
-<p align="center">
-  <video src="https://github.com/user-attachments/assets/1b53cbf3-7750-446b-a3b9-35708019d7a1" controls preload="metadata" width="880"></video>
-</p>
+https://github.com/user-attachments/assets/1b53cbf3-7750-446b-a3b9-35708019d7a1
 
 <p align="center"><sub>▶ 产品介绍视频（53s） · <a href="https://github.com/user-attachments/assets/1b53cbf3-7750-446b-a3b9-35708019d7a1">浏览器直接打开</a> · <a href="docs/videos/teams-control-intro.mp4">下载到本地</a> · <a href="docs/images/teams-control-intro.jpg">封面图</a></sub></p>
 
