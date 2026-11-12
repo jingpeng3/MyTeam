@@ -2,15 +2,18 @@
 from __future__ import annotations
 
 import contextlib
+import copy
 import logging
 import time
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Any
 
+from . import notify
 from .config import Paths, atomic_write_json, file_lock, read_json_or
 from .models import (Task, PENDING, READY, DISPATCHED, DONE, FAILED, SKIPPED, BYPASSED,
-                     AWAITING_EXPANSION, TERMINAL, INFLIGHT, FAILURE, SATISFIED)
+                     AWAITING_EXPANSION, TERMINAL, INFLIGHT, FAILURE, SATISFIED,
+                     artifact_contract_errors)
 
 log = logging.getLogger(__name__)
 
@@ -118,6 +121,7 @@ class Board:
 
     def save(self, paths: Paths) -> Path:
         f = paths.job_file(self.goal_id)
+        just_finished = self.completed_at is None and self.is_complete()
         self._stamp_completion()
         # 全程持锁做「读磁盘版本 → 比对 → 原子写」：崩溃不留半截 board，并发驱动能察觉冲突。
         with file_lock(f):
@@ -131,6 +135,8 @@ class Board:
                 )
             self._version = max(on_disk, self._version) + 1
             atomic_write_json(f, self.to_dict())
+        if just_finished:           # 首次收敛（或打回后再次收敛）那一次落盘提醒流程结束
+            notify.job_finished(paths, self.goal_id, self.summary(), ok=not self.has_failures())
         return f
 
     def sync(self, paths: Paths) -> None:
@@ -209,6 +215,13 @@ class Board:
         if bad_reject:
             detail = "; ".join(f"{k} → reject_to {v} 不是其传递上游" for k, v in bad_reject.items())
             raise DagError(f"非法打回目标（reject_to 必须 ⊆ 传递上游/祖先）：{detail}")
+        # 1d) artifact_contract 格式：收割时要靠它失败关闭，声明写错（根类型/字段类型拼错、未知键）
+        #     会让校验静默失效或误判，载入期即挡下。
+        bad_contract = {t.task_id: errs for t in self.tasks.values()
+                        if (errs := artifact_contract_errors(t.artifact_contract))}
+        if bad_contract:
+            detail = "; ".join(f"{k} → {', '.join(v)}" for k, v in bad_contract.items())
+            raise DagError(f"非法产物契约（artifact_contract）：{detail}")
         # 2) Kahn 拓扑排序检测环
         indeg = {tid: 0 for tid in self.tasks}
         for t in self.tasks.values():
@@ -347,7 +360,7 @@ class Board:
 
         步骤：
           1) 生成子任务 <template_id>.1 .. <template_id>.K：clone 模板的 capabilities/needs/see_artifacts/
-             context_refs/重试与超时整定，打上 fanout_group=模板id、fanout_max_parallel=模板并发上限。
+             context_refs/重试与超时整定/artifact_contract，打上 fanout_group=模板id、fanout_max_parallel=模板并发上限。
              子任务**不继承** fanout（自己不是模板）与 reject_to（打回是评审节点职责，不随扇出复制）。
           2) 重接线：凡 needs/see_artifacts/reject_to 里引用模板 id 的下游，替换成全部子任务 id——
              这样 join 节点改为依赖真实子任务（展开前依赖模板，用于上游失败级联；展开后依赖子任务）。
@@ -390,6 +403,8 @@ class Board:
                 timeout_s=t.timeout_s,
                 max_lifetime_s=t.max_lifetime_s,
                 awaiting_timeout_s=t.awaiting_timeout_s,
+                # 同构分片共用模板的产物契约：各片产出形态由框架统一校验，不再各自漂移
+                artifact_contract=copy.deepcopy(t.artifact_contract),
                 fanout_group=template_id,
                 fanout_max_parallel=max_parallel,
             )

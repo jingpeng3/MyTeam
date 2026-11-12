@@ -35,6 +35,18 @@ def test_bootstrap_carries_full_protocol(paths):
     assert "retryable=false" in text
     assert "${" not in text                                      # 模板槽全部替换
     assert "打回**权限" not in text and "第 2 次尝试" not in text   # 条件段默认不出现
+    assert "artifact_contract" in text                            # 信号字段说明含契约
+    assert "本任务声明了**产物结构契约**" not in text              # 未声明契约不出现契约段
+
+
+def test_bootstrap_contract_note(paths):
+    c = {"glob": "*.json", "root": "object", "items_key": "items", "required": ["url"],
+         "fields": {"thread": "array<object>"}}
+    text = _boot(paths, Task(task_id="t", goal="x", artifact_contract=c))
+    assert "本任务声明了**产物结构契约**" in text
+    assert "匹配 *.json：根为 object；条目数组在键 'items'；条目必填 ['url']" in text
+    assert "上次交付违反该契约" not in text                        # 首次派发无违约回显
+    assert text.index("retryable=false") < text.index("（信号 artifact_contract）") < text.index("工作目录：")
 
 
 def test_bootstrap_conditional_notes(paths):

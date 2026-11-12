@@ -1,6 +1,7 @@
 """数据模型：清单、任务、DAG、信号。"""
 from __future__ import annotations
 
+import copy
 import re
 import time
 from dataclasses import dataclass, field, asdict
@@ -123,6 +124,83 @@ _TASK_STR_LIST_FIELDS = ("capabilities", "needs", "tried_agents", "context_refs"
 _TASK_DICT_LIST_FIELDS = ("rejections", "runs")
 _TASK_DEDUP_FIELDS = frozenset({"needs", "see_artifacts", "reject_to"})
 
+# ---- 产物结构契约（Task.artifact_contract）----
+# 轻量字段契约，不引入 jsonschema：每条契约按 glob 匹配 outbox 上报 artifacts 里的 JSON 文件，
+# 校验根类型、条目数组（root=object 时由 items_key 指定）、条目必填字段与字段类型。
+# 格式校验在载入期（Board.validate），运行期校验在 DONE 收割时（monitor._apply_done），违约失败关闭。
+CONTRACT_ROOTS = frozenset({"array", "object"})
+CONTRACT_TYPES = frozenset({"string", "number", "boolean", "object", "array"})
+CONTRACT_ELEM_TYPES = frozenset({"string", "number", "boolean", "object"})   # array<…> 的元素类型
+_CONTRACT_KEYS = frozenset({"glob", "root", "items_key", "required", "fields"})
+_ARRAY_OF_RE = re.compile(r"array<(\w+)>")
+# 违约时 task.error 的前缀：bootstrap 据此在重试引导语里回显上次违约项。
+CONTRACT_ERROR_PREFIX = "artifact contract violation"
+
+
+def contract_type_valid(spec: Any) -> bool:
+    """字段类型声明是否合法：string/number/boolean/object/array，或 array<string|number|boolean|object>。"""
+    if not isinstance(spec, str):
+        return False
+    if spec in CONTRACT_TYPES:
+        return True
+    m = _ARRAY_OF_RE.fullmatch(spec)
+    return bool(m) and m.group(1) in CONTRACT_ELEM_TYPES
+
+
+def artifact_contract_errors(contracts: Any) -> list[str]:
+    """契约格式校验：返回全部格式问题（空列表=合法）。只看声明本身，不碰产物文件。"""
+    if not isinstance(contracts, list):
+        return [f"必须是对象或对象列表，得到 {type(contracts).__name__}"]
+    errs: list[str] = []
+    for i, c in enumerate(contracts):
+        at = f"[{i}]"
+        if not isinstance(c, dict):
+            errs.append(f"{at} 必须是对象，得到 {type(c).__name__}")
+            continue
+        unknown = sorted(set(c) - _CONTRACT_KEYS)
+        if unknown:
+            errs.append(f"{at} 未知键 {unknown}（合法：{sorted(_CONTRACT_KEYS)}）")
+        glob = c.get("glob", "*.json")
+        if not isinstance(glob, str) or not glob.strip():
+            errs.append(f"{at} glob 必须是非空字符串，得到 {glob!r}")
+        root = c.get("root")
+        if root not in CONTRACT_ROOTS:
+            errs.append(f"{at} root 必须是 {sorted(CONTRACT_ROOTS)} 之一，得到 {root!r}")
+        if "items_key" in c:
+            ik = c["items_key"]
+            if not isinstance(ik, str) or not ik.strip():
+                errs.append(f"{at} items_key 必须是非空字符串，得到 {ik!r}")
+            elif root != "object":
+                errs.append(f"{at} items_key 只能与 root=object 搭配（root={root!r}）")
+        req = c.get("required", [])
+        if not isinstance(req, list) or not all(isinstance(x, str) and x.strip() for x in req):
+            errs.append(f"{at} required 必须是非空字符串列表，得到 {req!r}")
+        fields = c.get("fields", {})
+        if not isinstance(fields, dict):
+            errs.append(f"{at} fields 必须是对象（字段名→类型），得到 {type(fields).__name__}")
+        else:
+            bad = {k: v for k, v in fields.items() if not contract_type_valid(v)}
+            if bad:
+                errs.append(f"{at} fields 类型非法 {bad}（合法：{sorted(CONTRACT_TYPES)}"
+                            f" 或 array<{'|'.join(sorted(CONTRACT_ELEM_TYPES))}>）")
+    return errs
+
+
+def describe_contract(c: dict) -> str:
+    """一条契约的人读摘要（引导语用）。坏契约（未经 Board.validate）原样回显、不抛异常，免得卡住派发。"""
+    if not isinstance(c, dict):
+        return f"契约格式非法: {c!r}"
+    parts = [f"匹配 {c.get('glob') or '*.json'}：根为 {c.get('root')}"]
+    if c.get("items_key"):
+        parts.append(f"条目数组在键 {c['items_key']!r}")
+    # root=object 且无 items_key 时校验的是根对象本身（与 monitor._check_contract_file 口径一致）
+    who = "根对象" if c.get("root") == "object" and not c.get("items_key") else "条目"
+    if c.get("required"):
+        parts.append(f"{who}必填 {c['required']}")
+    if c.get("fields"):
+        parts.append(f"{who}字段类型 {c['fields']}")
+    return "；".join(parts)
+
 
 @dataclass
 class Task:
@@ -174,6 +252,13 @@ class Task:
     # 本节点是 expand 生成的**子任务**：同组共享一个并发闸。空=非 fan-out 子任务（默认）。
     fanout_group: str = ""       # = 模板 task_id，调度按 (goal_id, fanout_group) 结算在途数
     fanout_max_parallel: int = 0  # 从模板 fanout.max_parallel 拷来：同组同时最多几个在跑，其余排队等容量
+    # ---- 产物结构契约 ----
+    # 声明本任务 DONE 交付里 JSON 产物的结构：每条 {"glob": "*.json", "root": "array"|"object",
+    # "items_key": <root=object 时条目数组所在键>, "required": [字段...], "fields": {字段: 类型}}，
+    # 类型取 string/number/boolean/object/array 或 array<string|number|boolean|object>。
+    # 写单个对象等价于单元素列表。收割时按契约校验，违约失败关闭（按 max_retries 重试/终态失败）。
+    # 空（默认）=不校验，行为一字不变。
+    artifact_contract: list[dict] = field(default_factory=list)
     # ---- 执行计时 ----
     # runtime.json 的 dispatched_at 收尾即删、且等人恢复时被刻意重置，不能用来算耗时；计时单独落在 board。
     ready_at: float | None = None   # 最近一次 PENDING→READY 的时刻，派发时据此算排队等容量耗时
@@ -206,6 +291,11 @@ class Task:
             v = getattr(self, fld)
             if not isinstance(v, int) or v < 0:
                 raise ValueError(f"task {self.task_id!r} 字段 {fld} 必须是非负整数，得到 {v!r}")
+        # 契约只做形态归一（null/{}→[]、单个对象→[对象]）；格式合法性由 Board.validate 载入期校验报 DagError。
+        if self.artifact_contract is None or self.artifact_contract == {}:
+            self.artifact_contract = []
+        elif isinstance(self.artifact_contract, dict):
+            self.artifact_contract = [self.artifact_contract]
         if self.fanout is not None:
             if not isinstance(self.fanout, dict):
                 raise ValueError(f"task {self.task_id!r} 的 fanout 必须是对象，得到 {type(self.fanout).__name__}")
@@ -324,6 +414,8 @@ class Task:
             # 本节点作为打回目标重跑时的「凭证」：历次下游打回意见+证据（绝对路径），
             # worker 必读、针对性修复、勿重复同样问题。空=从未被打回。
             "rejections": list(self.rejections),
+            # 产物结构契约：worker 上报的 artifacts 里须有匹配 glob 的 JSON 且结构符合，违约判本次失败。空=未声明。
+            "artifact_contract": copy.deepcopy(self.artifact_contract),
             "expect": self.expect,
         }
 

@@ -52,10 +52,14 @@ def current_session() -> str:
     return _DEFAULT_SESSION or DEFAULT_SESSION_NAME
 
 
-# herdr agent_status 的语义分组：存活推进中 / turn 已结束可接收输入 / 会话已死
-ALIVE_STATES = frozenset({"working", "busy", "running", "active", "thinking"})
-READY_STATES = frozenset({"idle", "done"})
-DEAD_STATES = frozenset({"error", "crashed", "gone", "dead"})
+# herdr agent_status 的语义分组。herdr 只上报 idle/working/blocked/done/unknown 五种（`agent wait
+# --until` 以外的值直接报错）；agent 已不在时 agent get 返回 agent_not_found，由 agent_status 归一为 "gone"。
+ALIVE_STATES = frozenset({"working"})            # 存活推进中
+READY_STATES = frozenset({"idle", "done"})       # turn 已结束，可接收输入
+# herdr 识别到审批/提问 UI（AskUserQuestion 选择表单、MCP elicitation、权限确认）：worker 停下等人，
+# 不是挂死。此时 `agent prompt` 会被 herdr 以 agent_blocked 拒绝，须先关掉弹窗再注入答复。
+BLOCKED_STATES = frozenset({"blocked"})
+DEAD_STATES = frozenset({"gone"})
 
 
 class HerdrError(RuntimeError):
@@ -214,21 +218,15 @@ def create_pane(workspace_id: str, cwd: str, label: str,
 
 
 def _wait_agent_ready(name: str, timeout_s: float = 45.0) -> bool:
-    """轮询 agent 状态直到可接受输入（idle/done）。用于 agent_not_ready 后等待启动完成。"""
-    deadline = time.time() + timeout_s
-    delay = 0.5
-    while time.time() < deadline:
-        try:
-            st = agent_status(name)
-        except HerdrError:
-            st = "unknown"
-        if st in READY_STATES:
-            return True
-        if st in DEAD_STATES:
-            return False
-        time.sleep(delay)
-        delay = min(delay * 1.5, 3.0)
-    return False
+    """阻塞到 agent 可接受输入（idle/done）。用于 agent_not_ready 后等待启动完成。
+    由 herdr 服务端 `agent wait` 等状态变化，不在本地轮询；超时/agent 消失/查询失败一律返回 False。"""
+    timeout_ms = int(timeout_s * 1000)
+    try:
+        _run(["agent", "wait", name, "--until", "idle", "--until", "done",
+              "--timeout", str(timeout_ms)], timeout=timeout_ms // 1000 + 15)
+        return True
+    except HerdrError:
+        return False
 
 
 def start_agent(pane_id: str, name: str, kind: str,
@@ -279,16 +277,58 @@ def start_agent(pane_id: str, name: str, kind: str,
 
 def prompt_agent(target: str, text: str, wait: bool = False,
                  until: list[str] | None = None, timeout_ms: int = 0) -> dict:
-    """向 agent 提交 prompt。分派场景用 fire-and-forget（wait=False），
-    完成靠 outbox 信号判定，不阻塞在这里等 turn 结束。"""
+    """向 agent 提交 prompt。不带 wait 时 herdr 只确认文本已写入，不保证 turn 开始。
+    `until` 隐含 wait（herdr 拒绝不带 --wait 的 --until）。"""
     args = ["agent", "prompt", target, text]
-    if wait:
+    if wait or until:
         args.append("--wait")
     for u in (until or []):        # 仅特定状态工作流才用 --until
         args += ["--until", u]
     if timeout_ms:
         args += ["--timeout", str(timeout_ms)]
     return _run(args, timeout=(timeout_ms // 1000 + 15) if timeout_ms else 120)
+
+
+# 分派引导 prompt 等 worker 真正开始执行的上限。herdr 自带「提交后 5s 内没观察到 working/blocked
+# 就报 agent_prompt_stalled」的门控，这里只兜住提交本身卡住的情况。
+PROMPT_START_TIMEOUT_MS = 20000
+
+
+def submit_task_prompt(target: str, text: str) -> str:
+    """提交分派引导 prompt，并确认 worker 已开始执行（herdr 观察到 working 或 blocked）。
+
+    未开始执行时 herdr 报 agent_prompt_stalled / timeout，作为 HerdrError 抛给分派层走 provision 重试
+    （会关掉这个 pane 重新拉起，不会出现同一 prompt 被两个 worker 执行）。只等到开始、不等 turn 结束。
+    返回 herdr 上报的 agent 会话 ID（agent_session.value，如 Claude 的 session uuid）；未上报时为空串。"""
+    res = prompt_agent(target, text, until=["working", "blocked"],
+                       timeout_ms=PROMPT_START_TIMEOUT_MS)
+    return agent_session_id(res)
+
+
+def agent_session_id(info: Any) -> str:
+    """从 herdr agent 信息（agent get / wait / prompt --wait 的返回）取 agent_session.value。"""
+    node = info.get("agent", info) if isinstance(info, dict) else None
+    sess = node.get("agent_session") if isinstance(node, dict) else None
+    val = sess.get("value") if isinstance(sess, dict) else None
+    return val if isinstance(val, str) else ""
+
+
+def dismiss_dialog(target: str, timeout_s: float = 15.0) -> bool:
+    """按 esc 关掉 agent 当前的审批/提问弹窗（blocked 态），并等它回到可接收 prompt 的 idle/done。
+    返回是否已就绪。"""
+    _run(["agent", "send-keys", target, "esc"])
+    return _wait_agent_ready(target, timeout_s=timeout_s)
+
+
+def notify(title: str, body: str = "", sound: str = "none") -> None:
+    """在 herdr 里弹一条 toast 通知（sound: none/done/request）。纯提示，失败静默。"""
+    args = ["notification", "show", title, "--sound", sound]
+    if body:
+        args += ["--body", body]
+    try:
+        _run(args, timeout=10)
+    except HerdrError as e:
+        log.debug("herdr notification 失败: %s", e)
 
 
 def agent_status(target: str) -> str:

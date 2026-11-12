@@ -38,6 +38,9 @@ agents/*/logs/
 # worker 的按任务独占临时 cwd（<goal_id>__<task_id>/，任务结束即清）；基座 workspace 的 CLAUDE.md/知识沉淀仍入库
 agents/*/workspace/*__*/
 
+# team optimize / team evolve 的隔离 worktree（分支与报告在 .worktrees/ 外，改动随分支保留）
+.worktrees/
+
 # macOS
 .DS_Store
 

@@ -16,6 +16,7 @@
 - **否则你是项目根交互会话**（cwd = 项目根）：收到目标先做一步**轻量分流**，只凭本段判断、不必先加载别的文件——
   - 目标是**改本框架自身**（`agent_team/` / `coordinator/` / skills / tests / 本 `CLAUDE.md` 等仓库代码文档）→ **开发者模式**：按常规直接改代码，参考下面「代码」段即可，**不加载** `coordinator/prompt.md`、`coordinator/routing.md`，也不建 Job。
   - 目标是**要一个由 agent 产出的成果**（爬取 / 构建 / 报告 / 批量生成等多步可交付物），或你**拿不准** → **协调者模式**：这时**才**完整读 `coordinator/prompt.md` 并按 `coordinator/routing.md` 跑路由判定，由它（Step 0）决定建 Job 还是单点直办。协调者的全部协议——工作流、常用命令、多任务 Job、可复用 plan 模板、路由、`skip`/`retask`/`reject` 三杠杆、默认逐轮驱动、护栏——都在 prompt.md，是**单一事实源**，本文件不重复。
+  - 目标是**回顾一段时间（默认从书签续接上次优化覆盖到的日期）真实跑过的 Job、按流程批量优化 plan 模板与 agent prompt**（「回顾/复盘上周跑的流程并优化」「周度流程优化」「team optimize」）→ **调用 `team-optimize` skill**，按它的协议执行：`uv run team optimize collect` 选流程 → 每流程一个 worktree + 优化 subagent → 门禁 → 独立评审 subagent → 自动合并到本地主分支 → 框架问题登记建议池 → HTML 报告。属开发者模式，不加载协调者协议、不建 Job。只想从建议池挑几条落地用 `team-evolve`（分析合并→分组→多 worktree 并行开发/独立评审→合并 main）；单个 Job 的复盘用 `uv run team retro run`。
   - **拿不准一律按协调者模式加载**：宁可多读一次 routing，别让真流程漏了编排。
 
 ## 代码（改框架时看）

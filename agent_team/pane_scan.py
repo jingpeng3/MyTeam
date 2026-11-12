@@ -76,15 +76,22 @@ _PLACEHOLDER_Q_RE = re.compile(r"^<[^>]*>$")
 # 否则末行永远扫到 chrome、兜底恒失效（漏报把等人 worker 当挂死）。
 _PANE_CHROME_RE = re.compile(
     r"^[>›❯$#*•\s]*$|^[-─—=_]{3,}$|bypass permissions|shift\+tab|for agents|"
-    r"用户：|模型：|额度：|上下文：|esc to interrupt|\? for shortcuts|ctrl\+",
+    r"用户：|模型：|额度：|上下文：|esc to interrupt|\? for shortcuts|ctrl\+|"
+    r"^\s*⎿\s*interrupted\b|interrupted · what should claude do instead",
     re.IGNORECASE)
-_PANE_MARK_STRIP = " \t`'\"*•-›>⏺●○◦▪·"   # 行首项目符号/引用符/提示符，判定前剥掉
+# Claude Code TUI 的「用户中断」文案：是 harness chrome，不是 worker 在问人。若被自由文本兜底当成
+# 提问，会把已停下的任务 park 满 awaiting 上限（曾空耗约 85 分钟）。
+_INTERRUPT_TUI_RE = re.compile(
+    r"interrupted\s*(?:·|â€¢|\||-)\s*what should claude do instead|"
+    r"interrupted by user|what should claude do instead",
+    re.IGNORECASE)
+_PANE_MARK_STRIP = " \t`'\"*•-›>⏺●○◦▪·⎿"   # 行首项目符号/引用符/提示符，判定前剥掉
 
 
 def awaiting_reason(text: str) -> str | None:
     """pane 输出是否表明 worker **停下来等人拍板**（而非挂死）。命中返回问题摘要，否则 None。
 
-    调用方须先确认 herdr 状态属 herdr.READY_STATES（turn 已结束）——「等输入」的前提是 worker 停下了；
+    调用方须先确认 herdr 状态属 herdr.READY_STATES（turn 已结束）或 BLOCKED_STATES（停在弹窗）——「等输入」的前提是 worker 停下了；
     working 中出现问号只是思考过程，不算等待。
 
     关键：**只认 worker 自己输出行行首的哨兵**。此前用 `rfind` 扫整段，会命中我们发给 worker 的
@@ -106,7 +113,8 @@ def awaiting_reason(text: str) -> str | None:
         return q[:200]
     # 自由文本兜底：从尾部**跳过已知 TUI chrome 行**，取最近一行 worker 有效输出判问句。
     tail = [s for ln in raw_lines
-            if (s := ln.strip()) and not _PANE_CHROME_RE.search(s)]
+            if (s := ln.strip()) and not _PANE_CHROME_RE.search(s)
+            and not _INTERRUPT_TUI_RE.search(s)]
     if not tail:
         return None
     cand = tail[-1].lstrip(_PANE_MARK_STRIP).strip()
@@ -114,4 +122,17 @@ def awaiting_reason(text: str) -> str | None:
         return None
     if cand.endswith("?") or cand.endswith("？") or _AWAIT_PHRASES.search(cand):
         return cand[:200]
+    return None
+
+
+def dialog_question(text: str) -> str | None:
+    """herdr 已判 blocked（停在审批/提问弹窗）时，从 pane 里取问题摘要：先认哨兵/问句兜底，
+    再自底向上找最近一行以问号结尾的 worker 输出——弹窗末尾是选项与按键提示，问句在它们上面。"""
+    q = awaiting_reason(text)
+    if q:
+        return q
+    for ln in reversed((text or "").splitlines()):
+        s = ln.strip().lstrip(_PANE_MARK_STRIP).strip()
+        if s and not _PANE_CHROME_RE.search(s) and (s.endswith("?") or s.endswith("？")):
+            return s[:200]
     return None

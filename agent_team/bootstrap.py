@@ -8,7 +8,7 @@ from string import Template
 
 from . import signals, pane_scan
 from .config import Paths, resolve_task_workspace
-from .models import Task, AgentManifest
+from .models import Task, AgentManifest, CONTRACT_ERROR_PREFIX, describe_contract
 
 # worker 通用交付协议（读 inbox → 执行 → 写 outbox、产物目录、等人介入）的唯一事实源：
 # agent 的 prompt.md 只写本角色的工作内容，不再各自抄一份完成协议。
@@ -114,9 +114,19 @@ def build_bootstrap(paths: Paths, m: AgentManifest, goal_id: str, task: Task) ->
             f"summary=具体打回意见、artifacts=证据文件（绝对路径）。框架会把该上游连同其下游"
             f"全部重置重跑、并把你的意见+证据作为凭证注入它，随后你会被重新拉起复评。"
             f"打回有次数上限，请只在确有实质问题时打回，意见要具体可操作。\n")
+    # 产物结构契约：声明了就把契约摘要写进引导语；上次因违约被判失败则回显违约项，令重试针对性修正。
+    contract_note = ""
+    if task.artifact_contract:
+        lines = [f"  - {describe_contract(c)}" for c in task.artifact_contract]
+        contract_note = (
+            "本任务声明了**产物结构契约**（信号 artifact_contract）。outbox 的 artifacts 里必须有匹配 glob 的"
+            "绝对路径 JSON 文件，且结构完全符合以下契约；框架收割时逐文件校验，违约即判本次失败"
+            "（按重试预算重跑或终态失败）：\n" + "\n".join(lines) + "\n")
+        if task.error and task.error.startswith(CONTRACT_ERROR_PREFIX):
+            contract_note += f"上次交付违反该契约：{task.error}\n请逐项修正后再交付。\n"
     protocol = Template(_PROTOCOL.read_text(encoding="utf-8")).substitute(
         inbox=inbox, outbox=outbox, persona=persona, cwd=cwd, artifacts_dir=art,
-        task_notes=retry_note + reject_history_note + reject_cap_note,
+        task_notes=retry_note + reject_history_note + reject_cap_note + contract_note,
         await_sentinel=pane_scan.AWAIT_SENTINEL,
     )
     return f"你是 team 的 {m.role or m.name}。{skills}\n" + protocol.rstrip("\n")

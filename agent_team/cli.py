@@ -13,7 +13,7 @@ import sys
 from pathlib import Path
 from typing import Any, NoReturn
 
-from . import coordinator, registry, retro
+from . import coordinator, evolve, evolve_ops, notify, optimize, optimize_ops, optimize_report, registry, retro
 from .board import Board, DagError, job_lock
 from .config import Paths, load_manifest, read_json_or
 from .models import Task, PLACEHOLDER_RE, UNFILLED_SLOT_RE
@@ -300,6 +300,7 @@ def cmd_plan(a) -> int:
         note = "（覆盖了一个未完成的同名 Job）"
     src = f"（模板实例化：{gid}，填了 {len(values)} 个槽）" if (slots or values) else ""
     print(f"loaded job {gid}: {board.summary()} {src}{note}")
+    notify.job_started(p, gid, board.goal or board.summary())
     return 0
 
 
@@ -593,6 +594,307 @@ def cmd_insights_mark(a) -> int:
     if done:
         print(f"marked {a.status}: {', '.join(done)}")
     return 0 if done else 1
+
+
+# ---------------- 流程优化 campaign（team-optimize skill 驱动） ----------------
+# 手动可记的日志事件；状态类事件（worktree/门禁/评审/合并）由对应子命令自动记，不在此列
+_OPT_LOG_EVENTS = ("review_started", "fix_round", "abandoned", "note")
+
+
+def _opt_cid(p: Paths, a) -> str:
+    try:
+        return a.campaign or optimize.latest_campaign(p)
+    except FileNotFoundError as e:
+        _die(str(e))
+
+
+def _opt_call(fn, *args, **kw):
+    """optimize 层的业务错误（流程不存在、门禁前置不满足、修复轮超限…）一律转成一行 stderr，不吐栈。"""
+    try:
+        return fn(*args, **kw)
+    except (FileNotFoundError, FileExistsError, KeyError, ValueError, RuntimeError) as e:
+        _die(f"optimize: {e}")
+
+
+def _opt_brief(c: dict) -> dict:
+    flows = {n: {k: f.get(k) for k in ("status", "score", "reason", "jobs", "stale_jobs", "owned_agents",
+                                       "requests_agents", "shared_agents", "allowed", "branch", "worktree",
+                                       "review_rounds", "fix_rounds", "verdict")}
+             for n, f in c["flows"].items()}
+    return {"campaign_id": c["campaign_id"], "window": {k: c["window"][k] for k in ("label", "start", "end")},
+            "base_commit": c.get("base_commit"), "base_branch": c.get("base_branch"), "selected": c["selected"],
+            "flows": flows, "framework_candidates": [{k: x[k] for k in ("label", "count", "flows")}
+                                                     for x in c.get("framework_candidates", [])],
+            "previous_effect": c.get("previous_effect", []),
+            "pending_cross_flow": c.get("pending_cross_flow", []),
+            "dir": str(optimize.campaign_dir(_paths(), c["campaign_id"]))}
+
+
+def cmd_opt_collect(a) -> int:
+    p = _paths()
+    try:
+        explicit = a.since or a.until or a.days
+        win = optimize.resolve_window(a.since, a.until, a.days) if explicit else optimize.default_window(p)
+    except ValueError as e:
+        _die(f"optimize collect 非法：{e}")
+    if a.max_flows < 1:
+        _die("optimize collect 非法：--max-flows 需 >= 1")
+    c = _opt_call(optimize.collect, p, win, cid=a.id or "", max_flows=a.max_flows, force=a.force)
+    _print(_opt_brief(c))
+    return 0
+
+
+def cmd_opt_bookmark(a) -> int:
+    _print(optimize.bookmark(_paths()))
+    return 0
+
+
+def cmd_opt_abandon(a) -> int:
+    p = _paths()
+    _print(_opt_call(optimize.abandon_campaign, p, _opt_cid(p, a), reason=a.reason))
+    return 0
+
+
+def cmd_opt_status(a) -> int:
+    p = _paths()
+    c = _opt_call(optimize.load_campaign, p, _opt_cid(p, a))
+    _print(_opt_brief(c))
+    return 0
+
+
+def cmd_opt_metrics(a) -> int:
+    _print(optimize.METRIC_HELP)
+    return 0
+
+
+def cmd_opt_prompt(a) -> int:
+    p = _paths()
+    print(_opt_call(optimize.render_prompt, p, _opt_cid(p, a), a.flow, a.role, round_=a.round))
+    return 0
+
+
+def cmd_opt_worktree(a) -> int:
+    p = _paths()
+    _print(_opt_call(optimize_ops.create_worktree, p, _opt_cid(p, a), a.flow))
+    return 0
+
+
+def cmd_opt_check(a) -> int:
+    p = _paths()
+    cid = _opt_cid(p, a)
+    if a.main:
+        c = _opt_call(optimize.load_campaign, p, cid)
+        res = _opt_call(optimize_ops.run_gate, p.root, base=c["base_commit"], skip_slow=a.skip_slow)
+    else:
+        if not a.flow:
+            _die("optimize check：要么给流程名，要么加 --main")
+        if a.preview:     # 优化者自测：同一套检查，但不落 gate-r<N>、不记日志、不推进状态
+            c = _opt_call(optimize.load_campaign, p, cid)
+            f = c["flows"].get(a.flow) or _die(f"optimize check：campaign {cid} 没有流程 {a.flow}")
+            if not f.get("worktree"):
+                _die(f"optimize check：{a.flow} 还没有 worktree")
+            res = _opt_call(optimize_ops.run_gate, Path(f["worktree"]), base=c["base_commit"], flow=f,
+                            report_path=optimize.flow_dir(p, cid, a.flow) / "optimize.json", skip_slow=a.skip_slow)
+        else:
+            res = _opt_call(optimize_ops.gate_flow, p, cid, a.flow, skip_slow=a.skip_slow)
+    _print(res)
+    return 0 if res["ok"] else 1
+
+
+def cmd_opt_record(a) -> int:
+    p = _paths()
+    cid = _opt_cid(p, a)
+    fn = optimize.record_optimizer if a.kind == "optimizer" else optimize.record_review
+    _print(_opt_call(fn, p, cid, a.flow))
+    return 0
+
+
+def cmd_opt_scope(a) -> int:
+    p = _paths()
+    bad = [x for x in a.paths if optimize.forbidden(x)]
+    if bad:
+        _die(f"optimize scope：{bad} 属于禁止改动区（框架/测试/协议/配置/状态），不能加白名单")
+    _print(_opt_call(optimize.log, p, _opt_cid(p, a), "scope_extended", flow=a.flow, files=a.paths,
+                     reason=a.reason))
+    return 0
+
+
+def cmd_opt_log(a) -> int:
+    p = _paths()
+    fields = {}
+    for kv in a.field or []:
+        k, sep, v = kv.partition("=")
+        if not sep or not k:
+            _die(f"optimize log：--field 需要 KEY=VALUE，得到 {kv!r}")
+        fields[k] = v
+    _print(_opt_call(optimize.log, p, _opt_cid(p, a), a.event, flow=a.flow or "", **fields))
+    return 0
+
+
+def cmd_opt_merge(a) -> int:
+    p = _paths()
+    res = _opt_call(optimize_ops.merge, p, _opt_cid(p, a), keep_worktrees=a.keep_worktrees, skip_slow=a.skip_slow)
+    _print(res)
+    gate_ok = res["main_gate"] is None or res["main_gate"]["ok"]
+    return 0 if res["conflict"] is None and gate_ok else 1
+
+
+def cmd_opt_cleanup(a) -> int:
+    p = _paths()
+    _print({"removed": _opt_call(optimize_ops.cleanup, p, _opt_cid(p, a))})
+    return 0
+
+
+def cmd_opt_issues(a) -> int:
+    p = _paths()
+    cid = _opt_cid(p, a)
+    extra = []
+    if a.file:
+        data = read_json_or(Path(a.file), None)
+        if not isinstance(data, list):
+            _die(f"optimize issues：{a.file} 必须是 JSON 数组（每项一条框架问题）")
+        extra = data
+    issues = optimize.gather_framework_issues(p, cid, extra)
+    if a.dry_run:
+        _print(issues)
+        return 0
+    _print(_opt_call(optimize.record_framework_issues, p, cid, issues))
+    return 0
+
+
+def cmd_opt_finish(a) -> int:
+    p = _paths()
+    cid = _opt_cid(p, a)
+    res = _opt_call(optimize.finish, p, cid)
+    d = optimize.campaign_dir(p, cid)
+    _print({"campaign_id": cid, "totals": res["totals"], "result": str(d / "result.json"),
+            "report": str(d / "report.html"), "history": str(optimize.history_file(p))})
+    return 0
+
+
+def cmd_opt_report(a) -> int:
+    """只重渲染报告（不改历史、不记日志），用于调整模板或补数据后刷新。"""
+    p = _paths()
+    cid = _opt_cid(p, a)
+    res = _opt_call(optimize.build_result, p, cid)
+    out = Path(a.out) if a.out else optimize.campaign_dir(p, cid) / "report.html"
+    out.write_text(optimize_report.render(res), encoding="utf-8")
+    print(str(out))
+    return 0
+
+
+# ---------------- 建议池批量落地（team-evolve skill 驱动） ----------------
+# 手动可记的日志事件；状态类事件（worktree/门禁/评审/合并）由对应子命令自动记，不在此列
+_EVOLVE_LOG_EVENTS = ("fix_round", "abandoned", "note")
+
+
+def _evolve_rid(p: Paths, a) -> str:
+    try:
+        return a.run or evolve.latest_run(p)
+    except FileNotFoundError as e:
+        _die(str(e))
+
+
+def _evolve_call(fn, *args, **kw):
+    """evolve 层的业务错误一律转成一行 stderr，不吐栈。"""
+    try:
+        return fn(*args, **kw)
+    except (FileNotFoundError, FileExistsError, KeyError, ValueError, RuntimeError) as e:
+        _die(f"evolve: {e}")
+
+
+def _evolve_brief(c: dict) -> dict:
+    groups = {n: {k: g.get(k) for k in ("status", "title", "insight_ids", "allowed", "depends_on",
+                                       "branch", "worktree", "review_rounds", "fix_rounds", "verdict",
+                                       "merge_commit", "reason")}
+              for n, g in c["groups"].items()}
+    return {"run_id": c["run_id"], "status": c.get("status"), "base_commit": c.get("base_commit"),
+            "base_branch": c.get("base_branch"), "insight_ids": c.get("insight_ids"),
+            "dismissed_proposals": c.get("dismissed_proposals"), "merges": c.get("merges"),
+            "groups": groups, "dir": str(evolve.run_dir(_paths(), c["run_id"]))}
+
+
+def cmd_evolve_start(a) -> int:
+    p = _paths()
+    ids = [x.strip() for x in (a.ids or "").split(",") if x.strip()]
+    c = _evolve_call(evolve.start, p, ids or None, top=a.top, run_id=a.run_id or "")
+    _print(_evolve_brief(c))
+    return 0
+
+
+def cmd_evolve_status(a) -> int:
+    p = _paths()
+    _print(_evolve_brief(_evolve_call(evolve.load_run, p, _evolve_rid(p, a))))
+    return 0
+
+
+def cmd_evolve_prompt(a) -> int:
+    p = _paths()
+    print(_evolve_call(evolve.render_prompt, p, _evolve_rid(p, a), a.role, a.group or "", round_=a.round))
+    return 0
+
+
+def cmd_evolve_group(a) -> int:
+    p = _paths()
+    c = _evolve_call(evolve.apply_analysis, p, _evolve_rid(p, a), Path(a.file))
+    _print(_evolve_brief(c))
+    return 0
+
+
+def cmd_evolve_worktree(a) -> int:
+    p = _paths()
+    _print(_evolve_call(evolve_ops.create_worktree, p, _evolve_rid(p, a), a.group))
+    return 0
+
+
+def cmd_evolve_record(a) -> int:
+    p = _paths()
+    rid = _evolve_rid(p, a)
+    fn = evolve.record_developer if a.kind == "developer" else evolve.record_review
+    _print(_evolve_call(fn, p, rid, a.group))
+    return 0
+
+
+def cmd_evolve_check(a) -> int:
+    p = _paths()
+    res = _evolve_call(evolve_ops.gate_group, p, _evolve_rid(p, a), a.group,
+                       skip_slow=a.skip_slow, preview=a.preview)
+    _print(res)
+    return 0 if res["ok"] else 1
+
+
+def cmd_evolve_log(a) -> int:
+    p = _paths()
+    fields = {}
+    for kv in a.field or []:
+        k, sep, v = kv.partition("=")
+        if not sep or not k:
+            _die(f"evolve log：--field 需要 KEY=VALUE，得到 {kv!r}")
+        fields[k] = v
+    _print(_evolve_call(evolve.log, p, _evolve_rid(p, a), a.event, group=a.group or "", **fields))
+    return 0
+
+
+def cmd_evolve_merge(a) -> int:
+    p = _paths()
+    res = _evolve_call(evolve_ops.merge, p, _evolve_rid(p, a),
+                       keep_worktrees=a.keep_worktrees, skip_slow=a.skip_slow)
+    _print(res)
+    gate_ok = res["main_gate"] is None or res["main_gate"]["ok"]
+    return 0 if res["conflict"] is None and gate_ok else 1
+
+
+def cmd_evolve_finish(a) -> int:
+    p = _paths()
+    rid = _evolve_rid(p, a)
+    res = _evolve_call(evolve.finish, p, rid, dry_run=a.dry_run)
+    out = {"run_id": rid, "totals": res["totals"], "applied_ids": res["applied_ids"],
+           "dismissed_ids": res["dismissed_ids"]}
+    if not a.dry_run:
+        d = evolve.run_dir(p, rid)
+        out |= {"result": str(d / "result.json"), "report": str(d / "report.md")}
+    _print(out)
+    return 0
 
 
 @_locks_job("goal_id")
@@ -902,6 +1204,8 @@ def build_parser() -> argparse.ArgumentParser:
     im.add_argument("ids", nargs="+")
     im.add_argument("--note", default="", help="备注：落地了什么 / 为何不采纳")
     im.set_defaults(func=cmd_insights_mark)
+    _add_optimize_parser(sub)
+    _add_evolve_parser(sub)
     jr = sub.add_parser("job", help="Job 管理").add_subparsers(dest="jsub", required=True)
     jrm = jr.add_parser("remove")
     jrm.add_argument("goal_id")
@@ -911,6 +1215,125 @@ def build_parser() -> argparse.ArgumentParser:
                      help="额外删除该 Job 的产物目录（交付物，慎用；默认保留）")
     jrm.set_defaults(func=cmd_job_remove)
     return ap
+
+
+def _add_optimize_parser(sub) -> None:
+    op = sub.add_parser("optimize", help="流程优化 campaign：回顾一个时间窗的真实运行→按流程 worktree 优化→"
+                        "独立评审→门禁→合并→HTML 报告（team-optimize skill 驱动）").add_subparsers(
+                            dest="osub", required=True)
+
+    def with_cid(p):
+        p.add_argument("--campaign", default="", help="campaign id；默认最近一次")
+        return p
+
+    oc = op.add_parser("collect", help="收集时间窗内已收敛 Job，算指标与问题信号，选流程、划改动边界")
+    oc.add_argument("--since", default="", help="起始日 YYYY-MM-DD（含）；三项都不给=从书签续接（无历史时上一个自然周）")
+    oc.add_argument("--until", default="", help="结束日 YYYY-MM-DD（含）；配合 --since")
+    oc.add_argument("--days", type=int, default=0, help="过去 N 天（含今天），替代书签续接")
+    oc.add_argument("--id", default="", help="campaign id；默认 opt-<今天>")
+    oc.add_argument("--max-flows", dest="max_flows", type=int, default=optimize.MAX_FLOWS,
+                    help=f"单次最多优化几条流程（默认 {optimize.MAX_FLOWS}）")
+    oc.add_argument("--force", action="store_true", help="有未收尾的 campaign 也新建")
+    oc.set_defaults(func=cmd_opt_collect)
+    op.add_parser("bookmark", help="书签：已覆盖到哪天、下次默认窗口、各流程最近一次优化与之后的新 Job 数"
+                  ).set_defaults(func=cmd_opt_bookmark)
+    oab = with_cid(op.add_parser("abandon", help="放弃半途废弃的 campaign（不再挡 collect，不计入书签）"))
+    oab.add_argument("--reason", default="")
+    oab.set_defaults(func=cmd_opt_abandon)
+    with_cid(op.add_parser("status", help="看 campaign 各流程状态与边界")).set_defaults(func=cmd_opt_status)
+    op.add_parser("metrics", help="列出验证指标词表").set_defaults(func=cmd_opt_metrics)
+    ow = with_cid(op.add_parser("worktree", help="为入选流程拉 worktree（.worktrees/<campaign>/<flow>）"))
+    ow.add_argument("flow")
+    ow.set_defaults(func=cmd_opt_worktree)
+    opr = with_cid(op.add_parser("prompt", help="把 skill 模板填成可直接派发的优化者/评审员提示词"))
+    opr.add_argument("role", choices=["optimizer", "reviewer"])
+    opr.add_argument("flow")
+    opr.add_argument("--round", type=int, default=0, help="评审轮次；默认按已有 review-r<N> 自动 +1")
+    opr.set_defaults(func=cmd_opt_prompt)
+    ock = with_cid(op.add_parser("check", help="门禁：边界+commit 前缀+优化报告契约+JSON/plan+diff+pytest/ruff"))
+    ock.add_argument("flow", nargs="?", default="")
+    ock.add_argument("--main", action="store_true", help="对主仓（合并后）跑门禁，不校验流程边界")
+    ock.add_argument("--preview", action="store_true", help="优化者自测：只跑检查，不落门禁记录、不推进状态")
+    ock.add_argument("--skip-slow", dest="skip_slow", action="store_true", help="跳过 pytest/ruff（仅调试用）")
+    ock.set_defaults(func=cmd_opt_check)
+    orc = with_cid(op.add_parser("record", help="登记 subagent 交付：optimizer=优化/修复完成，review=评审结论"))
+    orc.add_argument("kind", choices=["optimizer", "review"])
+    orc.add_argument("flow")
+    orc.set_defaults(func=cmd_opt_record)
+    osc = with_cid(op.add_parser("scope", help="为流程追加允许改动的路径（禁止区不可加）"))
+    osc.add_argument("flow")
+    osc.add_argument("paths", nargs="+")
+    osc.add_argument("--reason", default="")
+    osc.set_defaults(func=cmd_opt_scope)
+    olg = with_cid(op.add_parser("log", help="手动记优化日志：review_started / fix_round / abandoned / note"))
+    olg.add_argument("event", choices=_OPT_LOG_EVENTS)
+    olg.add_argument("--flow", default="")
+    olg.add_argument("--field", action="append", metavar="KEY=VALUE", help="附加字段，可重复（如 reason=…）")
+    olg.set_defaults(func=cmd_opt_log)
+    om = with_cid(op.add_parser("merge", help="把评审通过且门禁通过的流程 --no-ff 合入主分支，再跑主分支门禁并清理"))
+    om.add_argument("--keep-worktrees", dest="keep_worktrees", action="store_true")
+    om.add_argument("--skip-slow", dest="skip_slow", action="store_true", help="主分支门禁跳过 pytest/ruff（仅调试用）")
+    om.set_defaults(func=cmd_opt_merge)
+    with_cid(op.add_parser("cleanup", help="移除本 campaign 的 worktree（已合并分支一并删除）")
+             ).set_defaults(func=cmd_opt_cleanup)
+    ois = with_cid(op.add_parser("issues", help="汇总各流程/评审报的框架问题并登记进建议池"))
+    ois.add_argument("--file", default="", help="编排者补充的框架问题 JSON 数组")
+    ois.add_argument("--dry-run", dest="dry_run", action="store_true", help="只列出将登记的条目")
+    ois.set_defaults(func=cmd_opt_issues)
+    with_cid(op.add_parser("finish", help="收尾：result.json + 写优化历史 + 渲染 report.html")
+             ).set_defaults(func=cmd_opt_finish)
+    orp = with_cid(op.add_parser("report", help="只重渲染 HTML 报告"))
+    orp.add_argument("--out", default="", help="输出路径；默认 campaign 目录下 report.html")
+    orp.set_defaults(func=cmd_opt_report)
+
+
+def _add_evolve_parser(sub) -> None:
+    ev = sub.add_parser("evolve", help="建议池批量落地：分析合并分组→每组 worktree 开发/独立评审→合并 main"
+                        "（team-evolve skill 驱动）").add_subparsers(dest="esub", required=True)
+
+    def with_rid(p):
+        p.add_argument("--run", default="", help="evolve run id；默认最近一次")
+        return p
+
+    st = ev.add_parser("start", help="从建议池选 open 建议建 run、写证据（要求主工作区干净）")
+    st.add_argument("--ids", default="", help="逗号分隔的建议 id；省略则按得分取前 --top 条")
+    st.add_argument("--top", type=int, default=evolve.MAX_INSIGHTS,
+                    help=f"省略 --ids 时最多选几条（默认/上限 {evolve.MAX_INSIGHTS}）")
+    st.add_argument("--run-id", dest="run_id", default="", help="run id；默认 evolve-<今天>")
+    st.set_defaults(func=cmd_evolve_start)
+    with_rid(ev.add_parser("status", help="看 run 各分组状态与边界")).set_defaults(func=cmd_evolve_status)
+    ep = with_rid(ev.add_parser("prompt", help="生成分析/开发/评审 subagent 提示词"))
+    ep.add_argument("role", choices=["analyzer", "developer", "reviewer"])
+    ep.add_argument("group", nargs="?", default="", help="组名（analyzer 不需要）")
+    ep.add_argument("--round", type=int, default=0, help="评审轮次；默认按已有 review-r<N> 自动 +1")
+    ep.set_defaults(func=cmd_evolve_prompt)
+    eg = with_rid(ev.add_parser("group", help="校验 analysis.json 并落分组（每条建议恰好分配/驳回、组间文件集不相交）"))
+    eg.add_argument("--from", dest="file", required=True, metavar="ANALYSIS_JSON")
+    eg.set_defaults(func=cmd_evolve_group)
+    ew = with_rid(ev.add_parser("worktree", help="为某组拉 worktree（.worktrees/<run>/<group>）"))
+    ew.add_argument("group")
+    ew.set_defaults(func=cmd_evolve_worktree)
+    er = with_rid(ev.add_parser("record", help="登记 subagent 交付：developer=开发/修复完成，review=评审结论"))
+    er.add_argument("kind", choices=["developer", "review"])
+    er.add_argument("group")
+    er.set_defaults(func=cmd_evolve_record)
+    ec = with_rid(ev.add_parser("check", help="门禁：组边界+commit 前缀+交付契约+JSON/plan+diff+pytest/ruff"))
+    ec.add_argument("group")
+    ec.add_argument("--preview", action="store_true", help="开发/评审自测：只跑检查，不落门禁记录、不推进状态")
+    ec.add_argument("--skip-slow", dest="skip_slow", action="store_true", help="跳过 pytest/ruff（仅调试用）")
+    ec.set_defaults(func=cmd_evolve_check)
+    el = with_rid(ev.add_parser("log", help="手动记日志：fix_round / abandoned / note"))
+    el.add_argument("event", choices=_EVOLVE_LOG_EVENTS)
+    el.add_argument("--group", default="")
+    el.add_argument("--field", action="append", metavar="KEY=VALUE", help="附加字段，可重复（如 reason=…）")
+    el.set_defaults(func=cmd_evolve_log)
+    em = with_rid(ev.add_parser("merge", help="把评审通过且门禁通过的组按依赖顺序 --no-ff 合入主分支，再跑主分支门禁"))
+    em.add_argument("--keep-worktrees", dest="keep_worktrees", action="store_true")
+    em.add_argument("--skip-slow", dest="skip_slow", action="store_true", help="主分支门禁跳过 pytest/ruff（仅调试用）")
+    em.set_defaults(func=cmd_evolve_merge)
+    ef = with_rid(ev.add_parser("finish", help="收尾：写 result.json/report.md，并把落地/驳回结果写回建议池"))
+    ef.add_argument("--dry-run", dest="dry_run", action="store_true", help="只汇总，不回写建议池")
+    ef.set_defaults(func=cmd_evolve_finish)
 
 
 def main(argv: list[str] | None = None) -> int:

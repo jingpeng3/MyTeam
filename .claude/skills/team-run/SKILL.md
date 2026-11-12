@@ -7,8 +7,9 @@ description: 驱动 agent-team 把已编排的工作流(plan/DAG)执行到完成
 
 用户说一句"跑起来"，你就把已编排好的任务 DAG 驱动到完成。你是协调者：拉起 worker、盯 outbox、推进依赖、回收 pane、最后用人话汇报。用户不用碰命令行。
 
+
 ## 0. 前置检查
-- 确认在 agent-team 项目（有 `team.yaml`、`agent_team/`）。下文命令都是 `team` CLI；只写了子命令的（如 `status <goal_id>`）同样加 `team` 前缀。`team` 找不到时先在仓库根执行 `scripts/install.sh` 安装，别退回 `python3 -m agent_team`。
+- 确认在 agent-team 项目（有 `team.yaml`、`agent_team/`）。下文命令都在仓库根用 `uv run team X` 调用（跑本仓库 `.venv`，不用全局安装的 `team`；只写了子命令的如 `status <goal_id>` 同样加 `uv run team` 前缀）。
 - 确定要跑的 Job（一个 plan = 一个 Job，按 `goal_id` 独立管理，可多 Job 并存）：
   - 用户点名了 plan 文件 → `uv run team plan coordinator/plans/<name>.json` 载入为 Job（不影响其它 Job）。
   - **plan 是模板（含 `{{槽}}`）或用户给了新目标** → `plan <模板> --show-vars` 看槽，按用户目标**为各阶段现写 goal 值**，再 `plan <模板> --as <批次id> --vars-file /tmp/vars.json`（或 `--var K=V`）实例化；`--as` 让同模板可并发多实例、漏填会被拒。
@@ -32,7 +33,7 @@ description: 驱动 agent-team 把已编排的工作流(plan/DAG)执行到完成
    - 每 3s 收割一次，**任一在途任务交付/失败/打回/进出等人就立即返回**，最长阻塞 90s（留在 shell 120s 超时内）；只收割、**不分派**。
    - `reason=changed`：读 `jobs.<goal_id>.changed`（刚变化节点的 status/summary/artifacts/error）和 `ready`（下次 tick 会派出的节点），据此决定 skip/retask/expand/answer，再回第 1 步 `tick`。变化按 run.log 事件判，后台 watch 已收掉的交付也会报出。
    - `reason=timeout`：没变化，直接再 `wait`（不必 tick）。`reason=no_inflight`：没有在途任务，回第 1 步 `tick`（或已收敛/卡死）。
-   - 别再用 `sleep N; team monitor` 轮询：完成平均要晚 ~50s 才被看到，空轮白耗回合；`--since` 游标每轮不同，也不会撞 Orca 的重复命令护栏。
+   - 别再用 `sleep N; uv run team monitor` 轮询：完成平均要晚 ~50s 才被看到，空轮白耗回合；`--since` 游标每轮不同，也不会撞 Orca 的重复命令护栏。
    - **完成判定只认 outbox 信号**（文件名按 `<goal_id>__<task_id>` 隔离），别去解析 worker 屏幕文本判断完成。
    - **每轮必读 wait 输出的 `stuck` / `complete` / `has_failures` 三个判决位**（新增）：`stuck:true`、或 `complete:true && has_failures:true` → **该 Job 已无法继续/已带失败收敛，立即停止本 Job 的循环并向用户汇报**，别再 tick 盲目重试。
    - 想看进度可 `herdr agent read <name> --source recent-unwrapped --lines 60` 瞄一眼，但别用长 `agent wait` 干等（会白等，教训）。
@@ -40,7 +41,7 @@ description: 驱动 agent-team 把已编排的工作流(plan/DAG)执行到完成
 3. **推进**：只要还没 `all_complete`、没 `stuck`、也没「带失败收敛」，**自动回到第 1 步继续下一轮**——每轮汇报一句进度即可，别把"是否继续监听/保持节奏"当问题抛给用户（持续监听是默认职责，唯一例外见下方护栏）。
    - 省事也可 `uv run team run`（自动循环所有 Job 到底），但交互中优先 tick+wait 以便实时汇报。
 
-> **后台收割守护（watch）**：`tick` 有真实在途任务时会自动脱离会话拉起 `uv run team watch`（全局单实例）。它只收割 outbox / 判超时 / 回收 pane，**从不分派**——你中途离开、会话被压缩，交付照样被收、容量照样释放；下游仍等你回来 `tick`。它与你的命令并发安全，**不用因为它在跑就改用只读命令**。回到跑了一阵的 Job 先 `uv run team wait --job X --since 0 --timeout 0` 看全部事件和 `ready`。关闭：`team.yaml` 写 `watch: {enabled: false}` 或 `TEAM_NO_WATCH=1`。
+> **后台收割守护（watch）**：`tick` 有真实在途任务时会自动脱离会话拉起 `team watch`（全局单实例）。它只收割 outbox / 判超时 / 回收 pane，**从不分派**——你中途离开、会话被压缩，交付照样被收、容量照样释放；下游仍等你回来 `tick`。它与你的命令并发安全，**不用因为它在跑就改用只读命令**。回到跑了一阵的 Job 先 `uv run team wait --job X --since 0 --timeout 0` 看全部事件和 `ready`。关闭：`team.yaml` 写 `watch: {enabled: false}` 或 `TEAM_NO_WATCH=1`。流程开始、需人介入、打回、流程结束时会弹 herdr 通知（单个 worker 完成不弹；`notify: {enabled: false}` 关闭）。
 
 > **主动跳过（绕过）无需执行的步骤**：每轮 `wait` 收到上游完成信号后，读它的 `result_summary`（就在 `changed` 里），判断**依赖它的下游步骤是否还有必要跑**。若摘要表明下游已无意义（如"未发现新数据/目标已存在/条件不成立"），用 `uv run team skip <goal_id> <task_id> [--reason "…"]` 跳过它。语义是**绕过**：该节点标 `bypassed`，下游把它当**已满足**照常执行（≠ 上游失败连累的级联 `skipped`；`bypassed` 不算失败、不进 `has_failures`）。可跳过 pending/ready/dispatched（在跑的会先回收 pane+清信号）。命令返回 `bypassed`/`newly_ready` 等，据此汇报"因某某，跳过 X，解锁 Y"。判断只依据结构化 `result_summary`，拿不准就照常执行、别乱跳。
 
@@ -48,7 +49,7 @@ description: 驱动 agent-team 把已编排的工作流(plan/DAG)执行到完成
 
 > **打回返工（reject）**：若某**已完成**上游的产出经评审/校验有问题、需返工，把**它连同其全部后代**重置重跑。两条路：① 评审/校验类节点在 plan 里声明了 `reject_to`、跑完在 outbox 写 `status=reject`，`monitor` **自动执行**——你在汇报里看到 `task_rejected` 事件即可；② 你读某节点 `result_summary` 后主动 `uv run team reject <goal_id> <target> --from <rejecter> --reason "具体问题" [--evidence <证据绝对路径>]`。流程**从 target 起**重跑（其上游不动），历次打回意见+证据作为**凭证**注入被打回节点、令其针对性修复、不重复犯错；`attempts` 归零（≠ 失败重试）。**看到 `reject_exhausted`（打回次数超 `max_rejects`、打回者停为 `AWAITING_INPUT`）必须裁决**：`reject … --force` 越限再给一次（可先 `retask <target>` 加强指导），或判失败收尾——别放着 parked 不管。skip / retask / reject 三个杠杆合起来，就是把僵化 DAG 变成「看运行时结果自适应」的地方。
 
-> **回答等人拍板（answer）**：worker 遇到需人决定的点会打印 `[[NEEDS-INPUT]] <问题>` 停下，`monitor` 把它置 `AWAITING_INPUT`（非挂死、非失败）并 surface 到 `report`/`status` 的 `awaiting`。看到普通 awaiting_input 就用 `uv run team answer <goal_id> <task_id> "答复"` 把答复注入其 pane，worker 收到即退回 dispatched 继续跑。别干等——不回答会在默认 1h 超时后被判失败。（`escalated=true` 的 awaiting 是打回触顶，不能 answer，要走 `reject … --force`。）
+> **回答等人拍板（answer）**：worker 遇到需人决定的点会打印 `[[NEEDS-INPUT]] <问题>` 停下（或停在 AskUserQuestion 等弹窗、herdr 报 `blocked`），`monitor` 把它置 `AWAITING_INPUT`（非挂死、非失败）并 surface 到 `report`/`status` 的 `awaiting`。看到普通 awaiting_input 就用 `uv run team answer <goal_id> <task_id> "答复"` 把答复注入其 pane，worker 收到即退回 dispatched 继续跑。别干等——不回答会在默认 1h 超时后被判失败。（`escalated=true` 的 awaiting 是打回触顶，不能 answer，要走 `reject … --force`。）
 
 > **动态并行展开（expand）**：plan 里带 `fanout` 的**扇出模板**节点，上游一完成就转 `awaiting_expansion`——`tick` 输出的 `awaiting_expansion` 列表会点名它。看到就**读它上游的 `result_summary`/产物**判定该开几路 K（按数据量/成本），再 `uv run team expand <goal_id> <模板task_id> --count K`。框架据此生成 `<模板>.1..K` 子任务、把下游依赖自动改接到全部子任务、模板置 `bypassed` 容器；子任务同组共享 `fanout.max_parallel` **同时并发上限**，超出的进 `waiting_for_capacity` 排队等容量。每片 goal 的 `{{shard}}`/`{{total}}` 自动替换；每片指令不同用 `--goals-file <json数组>`。**不展开就一直停在 `awaiting_expansion`**（非卡死、非失败，靠你推进）——每轮看到就去展开，别忽略。
 

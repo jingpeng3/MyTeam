@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from . import herdr, ledger, dispatch, reclaim
+from . import herdr, ledger, dispatch, reclaim, notify
 from .board import Board, DagError
 from .config import Paths
 from .models import (DISPATCHED, SKIPPED, READY, PENDING,
@@ -18,6 +18,14 @@ from .models import (DISPATCHED, SKIPPED, READY, PENDING,
 # 单个打回目标节点的**默认累计被打回上限**：task.max_rejects>0 时以任务为准。
 # 达到上限即不再自动回退，把打回者升级为 AWAITING_INPUT(escalated) 交协调者裁决，防实现↔评审无限乒乓。
 MAX_REJECTS = 2
+# retask 事件里保留的改写内容长度：复盘要能看出人工改了什么，又不让 run.log 膨胀。
+RETASK_PREVIEW_CHARS = 200
+
+
+def _clip(text: Any, n: int = RETASK_PREVIEW_CHARS) -> str:
+    """压缩空白并截断到 n 字，供事件留痕。"""
+    s = " ".join(str(text or "").split())
+    return s if len(s) <= n else s[:n] + "…"
 
 
 def _stash_reject_evidence(paths: Paths, gid: str, target_id: str,
@@ -81,12 +89,20 @@ def answer_task(paths: Paths, board: Board, task_id: str, text: str) -> dict[str
     if not hname:
         return {"ok": False, "error": f"task {task_id!r} 无 herdr_name（pane 已不在？），无法注入答复"}
     try:
+        # 停在弹窗（herdr blocked）的 worker 会被 agent prompt 以 agent_blocked 拒绝：
+        # 先 esc 关掉弹窗、等它回到输入框，再把答复作为普通 prompt 递入。
+        if herdr.agent_status(hname) in herdr.BLOCKED_STATES and not herdr.dismiss_dialog(hname):
+            return {"ok": False, "error": "worker 停在弹窗（blocked），esc 后仍未回到输入框，请到 pane 手动处理"}
         herdr.prompt_agent(hname, text)
     except herdr.HerdrError as e:
         return {"ok": False, "error": f"注入 pane 失败: {e}"}
     now = time.time()
     task.status = DISPATCHED
     task.mark_resumed(now)
+    # 记下「答的是哪个问题」：pane 尾部的旧 [[NEEDS-INPUT]] 哨兵不会立刻滚出，下一轮 monitor
+    # 若已无 awaiting 依赖就会从尾部重扫到同一句、0.1s 内再标一次等人（见 monitor._on_ready）。
+    info["answered_question"] = info.get("awaiting_reason") or ""
+    info["answered_at"] = now
     info.pop("awaiting_since", None)
     info.pop("awaiting_reason", None)
     info["last_alive_at"] = now           # 刚喂过 prompt，视为活跃，避免下轮 idle-grace 误杀
@@ -205,8 +221,10 @@ def retask_task(paths: Paths, board: Board, task_id: str, *,
     board.refresh_ready()
     board.save(paths)
     mode = "replace" if new_goal is not None else "append"
+    # 只记替换/追加的那段（不含原 goal），复盘可还原人工改写口径；正文仍以 job 文件为准。
+    preview = {"new_goal_preview": _clip(new_goal)} if mode == "replace" else {"append_preview": _clip(append)}
     ledger.log_event(paths, "task_retasked", goal_id=gid, task_id=task_id,
-               mode=mode, forced=out["forced"], reason=reason or "")
+               mode=mode, forced=out["forced"], reason=reason or "", **preview)
     out["retasked"].append(task_id)
     out["status"] = task.status
     out["new_goal"] = goal
@@ -305,6 +323,7 @@ def apply_reject_core(paths: Paths, board: Board, rt: dict, target_id: str, *,
         ledger.log_event(paths, "reject_exhausted", goal_id=gid, task_id=target_id,
                    from_task=from_task, reject_count=target.reject_count, limit=limit,
                    reason=reason)
+        notify.rejected(paths, gid, target_id, from_task, reason, exhausted=True)
         return out
     # 正常打回：累积凭证 → 重置 target 及其全部后代（含打回者自身）为待派，下轮从 target 起重跑。
     # 证据先快照进 target 名下 .rejections/（归档豁免区），避免打回者重跑归档后原证据路径失效。
@@ -323,6 +342,7 @@ def apply_reject_core(paths: Paths, board: Board, rt: dict, target_id: str, *,
     ledger.log_event(paths, "task_rejected", goal_id=gid, task_id=target_id,
                from_task=from_task, reject_count=target.reject_count,
                reset=reset_ids, forced=force, reason=reason)
+    notify.rejected(paths, gid, target_id, from_task, reason)
     return out
 
 

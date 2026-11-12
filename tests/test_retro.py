@@ -177,6 +177,51 @@ def test_ingest_dedupes_recurs_and_reopens(paths):
     assert retro.ranked(paths)[0]["id"] == sid and retro.ranked(paths)[0]["occurrences"] == 3
 
 
+def test_ingest_fingerprint_ignores_line_refs_and_quotes(paths):
+    # 同一问题只换了引号和 target 行号：指纹归一后应合并为一条（曾在 campaign 里产生 3 组近重复）
+    a = {"title": "门禁不允许「空改动」与协议允许「无可改进项」冲突", "scope": "project",
+         "target": "agent_team/optimize_ops.py:96 附近", "category": "framework"}
+    b = {"title": '门禁不允许“空改动”与协议允许“无可改进项”冲突', "scope": "project",
+         "target": "agent_team/optimize_ops.py:96-99", "category": "framework"}
+    _seed_retro_job(paths, "retro-g-1", [a])
+    assert retro.ingest(paths)["new"] == 1
+    _seed_retro_job(paths, "retro-g2-1", [b], source="g2")
+    assert retro.ingest(paths)["recurred"] == 1
+    [it] = retro.ranked(paths)
+    assert it["occurrences"] == 2
+
+
+def test_ingest_similar_title_merges_and_records_merged_from(paths):
+    # 措辞改了但显然同一问题（同 target、标题高度相似）：相似合并，而不是登记第二条
+    a = {"title": "provision 连续失败后只能等下一轮 tick，map-theme 空窗约 11 分钟", "scope": "project",
+         "target": "agent_team/dispatch.py", "category": "framework"}
+    b = {"title": "provision 连续失败后只能等下一轮 tick，导致 map-theme 空窗 11 分钟", "scope": "project",
+         "target": "agent_team/dispatch.py", "category": "framework"}
+    _seed_retro_job(paths, "retro-g-1", [a])
+    retro.ingest(paths)
+    sid = retro.ranked(paths)[0]["id"]
+    _seed_retro_job(paths, "retro-g2-1", [b], source="g2")
+    assert retro.ingest(paths)["recurred"] == 1
+    [it] = retro.ranked(paths)
+    assert it["id"] == sid and it["occurrences"] == 2
+    assert it["merged_from"] and it["merged_from"][0].startswith("ins-")
+
+
+def test_ingest_similar_title_does_not_resurrect_dismissed(paths):
+    # dismissed 是不采纳，后来的相似条目不能被悄悄吞掉：应作为新建议登记
+    a = {"title": "provision 连续失败后只能等下一轮 tick，map-theme 空窗约 11 分钟", "scope": "project",
+         "target": "agent_team/dispatch.py"}
+    b = {"title": "provision 连续失败后只能等下一轮 tick，导致 map-theme 空窗 11 分钟", "scope": "project",
+         "target": "agent_team/dispatch.py"}
+    _seed_retro_job(paths, "retro-g-1", [a])
+    retro.ingest(paths)
+    sid = retro.ranked(paths)[0]["id"]
+    retro.mark(paths, [sid], "dismissed", note="不改")
+    _seed_retro_job(paths, "retro-g2-1", [b], source="g2")
+    assert retro.ingest(paths)["new"] == 1
+    assert {x["id"] for x in retro.ranked(paths, status=None)} == {sid, retro._fingerprint(b)}
+
+
 def test_ingest_tolerates_malformed(paths):
     rb = Board("retro-bad-1", "复盘", [Task(retro.RETRO_TASK, "x", status=DONE)])
     rb.save(paths)
@@ -240,3 +285,32 @@ def test_plan_rejects_non_bool_retro(paths):
                              "tasks": [{"task_id": "a", "goal": "x", "capabilities": ["x"]}]}))
     with pytest.raises(SystemExit):
         cli.main(["plan", str(f)])
+
+
+def test_transcripts_index_resolves_worker_session_files(tmp_path, monkeypatch):
+    # dispatched 事件里的 agent_session → <CLAUDE_CONFIG_DIR>/projects/*/<id>.jsonl
+    cfg = tmp_path / "claude"
+    proj = cfg / "projects" / "-x-agents-w1-workspace-g--t"
+    proj.mkdir(parents=True)
+    (proj / "s1.jsonl").write_text("{}\n", encoding="utf-8")
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(cfg))
+    lines = [json.dumps(e) for e in (
+        {"event": "dispatched", "goal_id": "g", "task_id": "t", "agent": "w1", "attempt": 1, "agent_session": "s1"},
+        {"event": "dispatched", "goal_id": "g", "task_id": "u", "agent": "w1", "attempt": 1, "agent_session": "gone"},
+        {"event": "dispatched", "goal_id": "g", "task_id": "v", "agent": "w1", "attempt": 1},
+        {"event": "task_done", "goal_id": "g", "task_id": "t", "agent_session": "s1"},
+    )]
+    assert retro._transcripts(lines) == [
+        {"task_id": "t", "agent": "w1", "attempt": 1, "agent_session": "s1", "path": str(proj / "s1.jsonl")},
+        {"task_id": "u", "agent": "w1", "attempt": 1, "agent_session": "gone", "path": None},
+    ]
+
+
+def test_retro_inputs_include_transcripts_index(paths):
+    _agent(paths, "w1")
+    _agent(paths, "retro", caps=("flow-retro",))
+    res = _run_to_done(paths, _job(paths))
+    [rgid] = res["retro_spawned"]
+    inp = paths.job_artifacts_dir(rgid) / "_input"
+    assert json.loads((inp / retro.TRANSCRIPTS_FILE).read_text()) == []      # 打桩 herdr 不上报会话 ID
+    assert str(inp / retro.TRANSCRIPTS_FILE) in Board.load(paths, rgid).tasks[retro.RETRO_TASK].goal

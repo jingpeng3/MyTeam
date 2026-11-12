@@ -81,7 +81,7 @@ worker 是独立 CLI 会话，**启动在自己的 `agents/<name>/workspace/`、
    ```bash
    uv run team agent create <name> --role <角色> --capabilities <a,b>
    ```
-   然后写 `agents/<name>/prompt.md`（人格+协议）、`agents/<name>/workspace/CLAUDE.md`（热记忆+内联规范）；按 §3 定的 skill 装配**（连同依赖）——在目标 agent 目录下执行 `npx skills add … -y`（不加 `-g`），直接落到 `agents/<name>/.claude/skills/`，绝不装全局**；调 `agent.yaml` 的 `runtime.model`/`max_concurrent`/`skills`/`hidden_skills`（`hidden_skills` 强制对该 agent 的 worker 隐藏指定 skill，并集到 `team.yaml` 的 `defaults.worker_hidden_skills`；`agent create` 默认已填协调者专用的四个：team-build / team-run / agent-create / team-evolve）。
+   然后写 `agents/<name>/prompt.md`（人格+协议）、`agents/<name>/workspace/CLAUDE.md`（热记忆+内联规范）；按 §3 定的 skill 装配**（连同依赖）——在目标 agent 目录下执行 `npx skills add … -y`（不加 `-g`），直接落到 `agents/<name>/.claude/skills/`，绝不装全局**；调 `agent.yaml` 的 `runtime.model`/`max_concurrent`/`skills`/`hidden_skills`（`hidden_skills` 强制对该 agent 的 worker 隐藏指定 skill，并集到 `team.yaml` 的 `defaults.worker_hidden_skills`；`agent create` 默认已填协调者专用的五个：team-build / team-run / agent-create / team-evolve / team-optimize）。
 2. **写 plan（任务 DAG）**：一个 plan = 一个 **Job**（按 `goal_id` 独立管理，可多 Job 并存、状态与产物互相隔离）。写到 `coordinator/plans/<goal-id>.json`：
 ```json
 {

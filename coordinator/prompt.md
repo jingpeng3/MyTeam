@@ -46,12 +46,12 @@
   - **协调者手动**：`reject <goal_id> <target> [--from <rejecter>] [--reason …] [--evidence <abs>…] [--force]` —— 读某节点结果后主动打回（worker 没显式打回也能用）。
   - 语义：流程**从 target 起**重跑（target 上游不动，target + 全部后代含打回者一并重置为待派）；被打回节点重跑时，历次打回意见+证据经 signal(`rejections`) 与引导语注入，**永不清空**、令其针对性修复。`attempts` 归零（输入变了要重算 ≠ 失败重试，不耗 `max_retries`）；loop guard 由 target 的 `reject_count` 承担。
   - **次数上限**：单目标累计被打回超 `max_rejects`（任务级，0=全局默认 2）即**升级给协调者**——打回者停为 `AWAITING_INPUT`（escalated，非终态、不算失败、`monitor` 暂停对它的存活/超时判定），并 surface 到 `awaiting_tasks`。协调者裁决：`reject … --force` 越限再给一次（可先 `retask <target>` 加强指导），或按失败收尾。
-- 回答等人拍板（answer）：`answer <goal_id> <task_id> <text>` —— worker 遇到需人决定的点时会打印 `[[NEEDS-INPUT]] <问题>` 停下，`monitor` 把它置 `AWAITING_INPUT`（非挂死、非失败）并 surface 到 `report`/`status` 的 `awaiting`。**看到普通 `awaiting_input`（非打回升级）就用 `answer` 把答复注入其 pane**，worker 收到即退回 `dispatched` 继续跑、最终落 outbox。别干等——不回答会在 `AWAITING_INPUT_TIMEOUT`(默认 1h) 后被判失败回收。注意区分：`escalated=true` 的 awaiting（打回触顶）不能 answer，要走 `reject … --force`（见上）。
+- 回答等人拍板（answer）：`answer <goal_id> <task_id> <text>` —— worker 遇到需人决定的点时会打印 `[[NEEDS-INPUT]] <问题>` 停下（或停在 AskUserQuestion 等弹窗、herdr 报 `blocked`），`monitor` 把它置 `AWAITING_INPUT`（非挂死、非失败）并 surface 到 `report`/`status` 的 `awaiting`。**看到普通 `awaiting_input`（非打回升级）就用 `answer` 把答复注入其 pane**，worker 收到即退回 `dispatched` 继续跑、最终落 outbox。别干等——不回答会在 `AWAITING_INPUT_TIMEOUT`(默认 1h) 后被判失败回收。注意区分：`escalated=true` 的 awaiting（打回触顶）不能 answer，要走 `reject … --force`（见上）。
 - 动态并行展开（expand）：`expand <goal_id> <模板task_id> --count K [--var K=V…] [--goals-file <json>] [--reason …]` —— 把声明了 `fanout` 的**扇出模板**节点按上游产出动态展开成 K 个并行子任务（`<模板>.1..K`），下游依赖自动从模板改接到全部子任务、模板置 `bypassed` 容器。子任务同组共享 `fanout.max_parallel` **同时并发上限**（宽度不限、只限并发；超出的留 ready 等容量，`tick` 的 `waiting_for_capacity` 会列出）。每片 goal 的 `{{shard}}`/`{{total}}` 自动替换成片号/总数；每片指令不同用 `--goals-file`。只在**并行宽度取决于运行期数据量**时用；固定份数用静态兄弟节点。
 - 自动驾驶（降级用，非默认）：`run [--interval N] [--max-ticks M]` 循环所有活跃 Job 到完成/卡死 → `report [goal_id]` 汇总 → `job remove <goal_id> [--purge]`（`run --job X` 会连同 X 触发的复盘 Job 一起跑到收敛）
 - 复盘与建议池：`retro status|on|off [<模板>] [--job <goal_id>]` 管开关；`retro run <goal_id>` 手动为已收敛 Job 建复盘 Job；`insights list [--scope flow|project] [--status open|applied|dismissed|all] [--top N] [--json]` 看建议（按得分降序，先自动收入已完成复盘的新建议）；`insights show <id…>`；`insights mark <applied|dismissed|open> <id…> [--note …]`。建议池 `coordinator/insights/backlog.json` 入库共享；挑选落地走 `team-evolve` skill。
 - `tick`/`monitor`/`wait` 默认跨所有活跃 Job，可加 `--job <goal_id>` 限定单个；`tick`/`monitor` 本地验证加 `--dry-run`（只写信号不拉 pane）。
-- 后台收割守护（watch）：`tick` 有真实在途任务时会**自动脱离会话拉起** `uv run team watch`（全局单实例），它只做确定性的收割 / 超时判定 / 回收 pane，**从不分派**——会话结束、上下文压缩、人走开期间，交付照样被收、pane 与容量照样释放、超时照样按时判；下游仍等你回来读摘要后 `tick` 派出。无在途任务 5 分钟自行退出。与你的 tick/wait/skip/retask… 并发安全（同一 Job 的「载入→改→落盘」全程持 Job 锁）。关闭：`team.yaml` 写 `watch: {enabled: false}` 或设环境变量 `TEAM_NO_WATCH=1`；前台手动跑：`uv run team watch`。日志在 `coordinator/state/watch.log`，起停记 `watch_started`/`watch_stopped` 事件。
+- 后台收割守护（watch）：`tick` 有真实在途任务时会**自动脱离会话拉起** `uv run team watch`（全局单实例），它只做确定性的收割 / 超时判定 / 回收 pane，**从不分派**——会话结束、上下文压缩、人走开期间，交付照样被收、pane 与容量照样释放、超时照样按时判；下游仍等你回来读摘要后 `tick` 派出。无在途任务 5 分钟自行退出。与你的 tick/wait/skip/retask… 并发安全（同一 Job 的「载入→改→落盘」全程持 Job 锁）。关闭：`team.yaml` 写 `watch: {enabled: false}` 或设环境变量 `TEAM_NO_WATCH=1`；前台手动跑：`uv run team watch`。流程开始、需人介入、打回、流程结束时会弹 herdr 通知（单个 worker 完成不弹），`team.yaml` 写 `notify: {enabled: false}` 关闭。日志在 `coordinator/state/watch.log`，起停记 `watch_started`/`watch_stopped` 事件。
 - `tick` 默认 **hold 新解锁的下游**：本轮收割才解锁的节点不当场派出，列在输出 `held` 里，读完上游摘要（要改就 retask/skip）后**立即再 `tick`** 派出；`--no-hold` 恢复当场派出。
 
 ## 多任务（Job）
@@ -60,6 +60,7 @@
 - 信号文件按 `<goal_id>__<task_id>.json` 隔离；runtime pane 映射按 `<goal_id>:<task_id>` 复合键。
 - 产物按 Job 隔离：跨任务产物落 `shared/artifacts/<goal_id>/<task_id>/`（信号里的 `artifacts_dir`）；`context_refs` 里的 `shared/artifacts/<文件>` 自动映射到该 Job 目录。写 goal/expect 的产出路径用 `artifacts_dir/<文件>`，别写 `shared/artifacts/<文件>`，否则 worker 会在扁平根目录多写一份、跨 Job 互相覆盖。
 - 选择性继承上游产物：下游节点可写 `see_artifacts: ["<上游task_id>", …]`（**必须 ⊆ 自身 `needs`**，载入期校验，违者报错），分派时框架把这些节点写回的产物文件绝对路径注入信号 `inherited_artifacts`（`[{from, files}]`），引导语提示 worker 按需读取。空=不自动继承（默认）；与 `needs` 解耦——依赖某节点未必要看它的产物，只列真正要读的。
+- 产物结构契约 `artifact_contract`（可选，默认空=不校验）：**下游要按固定结构解析某节点的 JSON 产物时声明**，尤其是同构分片 / fan-out 子任务（模板上声明一次，`expand` 出的子任务自动继承），别等 build/渲染节点读到形态漂移再人工打回。写法：单个对象或对象列表，每条 `{"glob": "*.json", "root": "array"|"object", "items_key": "<root=object 时条目数组所在键>", "required": ["字段"...], "fields": {"字段": "string|number|boolean|object|array|array<string>|array<object>…"}}`；`required`/`fields` 校验的是条目数组里的每个条目（root=array 即根数组、root=object 时为 `items_key` 指向的数组），**root=object 且不写 `items_key` 时校验的是根对象本身**；非必填字段可缺省，出现了（含 null）就必须类型对。格式写错载入期即拒（`plan 非法：非法产物契约`）。收割时框架按 glob 在 outbox 上报的 artifacts 里找文件逐个校验，**无匹配文件也算违约**；违约**失败关闭**：按 `max_retries` 重试（引导语回显违约项）或终态失败，`task.error` 写明文件/条目序号/字段/期望与实际类型，run.log 记 `task_contract_violation`（随后一条 `task_failed`）。看到它就照常按失败处置，别当成 worker 偶发抖动：重试未耗尽时用 `retask --append` 强化产出指导；已终态 FAILED，或契约本身写错（retask 改不了契约）时，改 plan 后重新载入。
 
 ## 可复用 plan 模板（模板=骨架，goal_id=实例，目标由协调者填充）
 - plan 文件是**可复用模板**：固定 DAG 骨架（task_id/needs/capabilities），在任意字符串里留 `{{槽}}`（如各阶段 goal、objective）。
@@ -94,7 +95,7 @@
 - 维护「本轮已处理任务集合」防死循环；节点带 `max_retries`。
 - worker pane 默认只在其**本任务独占临时子目录**（`workspace/<goal_id>__<task_id>/`，即其 cwd）内写；基座 `workspace/`（含 `CLAUDE.md`/`.claude`）默认只读参考、靠向上查找继承。**例外：任务 goal 明确要求在基座 workspace 层写入/积累数据（沉淀可复用资料等）时，允许按 goal 指定路径写基座**；未被明确要求则不动基座文件。跨 agent 产物走 `shared/artifacts/`。独占子目录随 pane 回收（任务终态/重试/绕过/删 Job）即清。
 - 高风险动作（推送/删除/生产变更）暂停等用户确认。
-- **worker 的 skill 隔离**：分派时框架往 worker cwd 落 `.claude/settings.json`，用 `skillOverrides: off` 隐藏协调者专用 skill（默认 `team-build`/`team-run`/`agent-create`/`team-evolve`，见 `team.yaml` 的 `defaults.worker_hidden_skills`），叠加该 agent `agent.yaml` 里的 `hidden_skills`（**并集**，agent 级只能追加、不能取消团队默认）。目的是别让 worker 误以为自己是协调者。要放开某 skill 改团队默认那条；改完下一次分派生效（settings.json 每次分派现写、随 cwd 回收即清）。
+- **worker 的 skill 隔离**：分派时框架往 worker cwd 落 `.claude/settings.json`，用 `skillOverrides: off` 隐藏协调者专用 skill（默认 `team-build`/`team-run`/`agent-create`/`team-evolve`/`team-optimize`，见 `team.yaml` 的 `defaults.worker_hidden_skills`），叠加该 agent `agent.yaml` 里的 `hidden_skills`（**并集**，agent 级只能追加、不能取消团队默认）。目的是别让 worker 误以为自己是协调者。要放开某 skill 改团队默认那条；改完下一次分派生效（settings.json 每次分派现写、随 cwd 回收即清）。
 
 ## 对话式入口（skill）
 - 搭建团队/流程：`team-build` skill（`.claude/skills/team-build/`），引导澄清目标→建 agent→写 plan→dry-run→真跑。

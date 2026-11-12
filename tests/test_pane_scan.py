@@ -28,6 +28,11 @@ def test_fatal_reason(text, want):
     ("分析完毕。\n请确认是否继续\n────\n> ", "请确认是否继续"),
     ("Proceed with deploy?\nesc to interrupt", "Proceed with deploy?"),
     ("写完 outbox。\n> ", None),
+    # Claude Code 的「用户中断」TUI 文案是 harness chrome，不是 worker 在问人
+    ("已完成一半\n⎿  Interrupted · What should Claude do instead?\n> ", None),
+    ("⎿  Interrupted by user\n> ", None),
+    ("Interrupted · What should Claude do instead?", None),
+    ("接上文\n请确认是否继续？\n⎿  Interrupted · What should Claude do instead?", "请确认是否继续？"),
     ("", None),
 ])
 def test_awaiting_reason(text, want):
