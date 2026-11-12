@@ -14,5 +14,6 @@ defaults:
   - team-run
   - agent-create
   - team-evolve
+  - team-optimize
 agents:
 - flow-retro

@@ -11,7 +11,7 @@ import time
 import pytest
 import yaml
 
-from agent_team import coordinator, herdr
+from agent_team import coordinator, herdr, interventions
 from agent_team.board import Board
 from agent_team.config import Paths, resolve_task_workspace, load_manifest
 from agent_team.models import (Task, DISPATCHED, DONE, FAILED, READY, PENDING, BYPASSED,
@@ -278,6 +278,18 @@ def test_retask_running_requires_force(paths, fake):
     assert res["forced"] and t.status == READY and t.attempts == 0 and t.goal == "原指令\n补充"
     assert t.runs[-1]["outcome"] == "retasked"
     _assert_reclaimed(paths, fake, "w1", "a", "p1")
+    ev = [json.loads(x) for x in (paths.state_dir / "run.log").read_text().splitlines() if "task_retasked" in x][-1]
+    assert ev["append_preview"] == "补充" and "new_goal_preview" not in ev   # 复盘能还原改了啥
+
+
+def test_retask_events_preview_replace_and_clip(paths, fake):
+    b = _dispatched(paths, fake, Task("a", "原指令", capabilities=["x"]))
+    long_goal = "改口径：" + "很长的说明" * 40
+    coordinator.retask_task(paths, b, "a", new_goal=long_goal, force=True)
+    ev = [json.loads(x) for x in (paths.state_dir / "run.log").read_text().splitlines() if "task_retasked" in x][-1]
+    assert ev["new_goal_preview"].startswith("改口径：") and ev["new_goal_preview"].endswith("…")
+    assert len(ev["new_goal_preview"]) == interventions.RETASK_PREVIEW_CHARS + 1
+    assert "append_preview" not in ev
 
 
 def _impl_rev(paths, fake):
@@ -550,3 +562,4 @@ def test_watch_exits_on_persistent_errors_and_lifetime(paths, fake, monkeypatch)
     monkeypatch.setattr(coordinator, "harvest_round", lambda *a, **k: {"inflight": True, "changed": {}})
     assert watch.run(paths, poll=0, max_rounds=100, max_lifetime=0)["status"] == "max_lifetime"
     assert not watch.is_running(paths)                 # 退出即释放单实例锁
+

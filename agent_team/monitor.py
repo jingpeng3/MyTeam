@@ -1,16 +1,20 @@
 """监控：扫在途任务的 outbox 与 pane 存活，推进 DAG（完成 / 失败重试 / 超时 / 等人 / 打回）。"""
 from __future__ import annotations
 
+import fnmatch
+import json
 import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
-from . import herdr, signals, ledger, pane_scan, dispatch, reclaim, interventions
+from . import herdr, signals, ledger, pane_scan, dispatch, reclaim, interventions, notify
 from .board import Board
 from .config import Paths
 from .models import (Task, Result, DISPATCHED, DONE, FAILED, PENDING,
-                     AWAITING_INPUT, REJECT, DRY_PANE, runtime_key)
+                     AWAITING_INPUT, REJECT, DRY_PANE, CONTRACT_ERROR_PREFIX, runtime_key,
+                     artifact_contract_errors)
 
 # dispatched 任务无 outbox 的默认超时(秒)；task.timeout_s>0 时以任务为准。给足余量，
 # 只用于兜住"worker 静默死亡"，不影响正常执行。
@@ -25,6 +29,22 @@ MAX_LIFETIME_FACTOR = 3
 # 进入 AWAITING_INPUT（等人拍板）后的**存活上限**(秒)：等人期间暂停 max_lifetime_s 硬上限，
 # 仅受本上限约束；超过仍判失败回收，防被遗忘的「等人」任务永久占容量。task.awaiting_timeout_s 可覆写。
 AWAITING_INPUT_TIMEOUT = 3600
+# answer 注入后，pane 尾部旧 [[NEEDS-INPUT]] 往往还没滚出：该宽限内重扫到同一问题视为陈旧哨兵，
+# 不重复标 awaiting（否则 answer→awaiting 循环、report 计数与耗时被污染，还可能重复注入答案）。
+ANSWER_REPROMPT_GRACE = 30
+# herdr 报 blocked 而 pane 里扫不到问句时的等人原因（弹窗内容多为选项列表，不一定有问号）。
+BLOCKED_DIALOG_REASON = "worker 停在审批/提问弹窗（herdr blocked），请看 pane 后答复"
+# 契约违约项的列出上限：成百条目同错时 task.error / 事件不至于爆长，超出部分合并成一条「另有 N 项」。
+MAX_CONTRACT_VIOLATIONS = 20
+
+
+def _just_answered(info: dict, question: str, now: float) -> bool:
+    """该问题是否刚刚被 answer 过（宽限内、文本相同）：是则不把它当新提问。"""
+    prev = info.get("answered_question")
+    ts = info.get("answered_at")
+    if not prev or not isinstance(ts, (int, float)) or now - ts > ANSWER_REPROMPT_GRACE:
+        return False
+    return " ".join(str(prev).split()) == " ".join(str(question).split())
 
 
 def _mark_retry_or_failed(task: Task) -> None:
@@ -86,6 +106,8 @@ def _on_alive(paths: Paths, gid: str, task: Task, info: dict, hname: str,
         task.mark_resumed(now)        # 等人时段计入 awaiting_s、不算净执行
         info.pop("awaiting_since", None)
         info.pop("awaiting_reason", None)
+        info.pop("answered_question", None)   # 真正恢复执行后，之后同问题再出现就是新提问
+        info.pop("answered_at", None)
         # 重置存活时钟：等人期间豁免了硬上限，恢复后按新任务给足预算，
         # 否则原 dispatched_at 派生的硬上限可能已过、一恢复就被误杀。
         info["dispatched_at"] = now
@@ -108,6 +130,35 @@ def _awaiting_timeout_reason(task: Task, info: dict, now: float) -> str | None:
     return None
 
 
+def _mark_awaiting(paths: Paths, gid: str, task: Task, info: dict, question: str, now: float,
+                   prev_agent: str, v: _Verdict) -> None:
+    """标记（或保持）等人：首次进入记事件，并按 awaiting 上限判超时。"""
+    if task.status != AWAITING_INPUT:
+        task.status = AWAITING_INPUT
+        task.mark_awaiting(now)
+        info["awaiting_since"] = now
+        ledger.log_event(paths, "task_awaiting_input", goal_id=gid,
+                         task_id=task.task_id, agent=prev_agent, question=question)
+        notify.needs_input(paths, gid, task.task_id, question)
+        v.changed = True
+    info["awaiting_reason"] = question
+    # 有界上限：等人也不能无限占容量，超过 awaiting 上限仍判失败回收
+    v.fail_reason = _awaiting_timeout_reason(task, info, now)
+
+
+def _on_blocked(paths: Paths, gid: str, task: Task, info: dict, hname: str, now: float,
+                prev_agent: str, v: _Verdict) -> None:
+    """herdr 报 blocked：worker 停在审批/提问弹窗（AskUserQuestion、MCP elicitation 等）等人。
+    herdr 已确认是弹窗，不必再靠哨兵判断；问题摘要优先取 pane 里的问句，取不到用通用描述。
+    此前 blocked 落进 unknown 分支，不刷心跳，超过 timeout_s 就被当「静默死亡」回收重派。"""
+    question = pane_scan.dialog_question(pane_scan.read_tail(hname)) or BLOCKED_DIALOG_REASON
+    v.rt_dirty = True
+    info["idle_since"] = None
+    if task.status != AWAITING_INPUT and _just_answered(info, question, now):
+        return        # 刚 answer 过、弹窗还没消失：别重复标等人
+    _mark_awaiting(paths, gid, task, info, question, now, prev_agent, v)
+
+
 def _on_ready(paths: Paths, gid: str, task: Task, info: dict, hname: str, st: str,
               ostate: str, started: float, now: float, prev_agent: str, v: _Verdict) -> None:
     """herdr 报 idle/done（turn 已结束）且无可用 outbox：致命信号 → 等人提问 → 宽限后判交付缺失/损坏。"""
@@ -121,17 +172,13 @@ def _on_ready(paths: Paths, gid: str, task: Task, info: dict, hname: str, st: st
         return
     question = pane_scan.awaiting_reason(tail)
     v.rt_dirty = True
+    if question and task.status != AWAITING_INPUT and _just_answered(info, question, now):
+        # 刚 answer 过、worker 还没恢复：pane 里是旧哨兵。既不重复标等人，也不能让它落进
+        # idle-no-outbox 宽限（否则 10s 后就被判交付缺失）。
+        info["idle_since"] = None
+        return
     if question:
-        if task.status != AWAITING_INPUT:
-            task.status = AWAITING_INPUT
-            task.mark_awaiting(now)
-            info["awaiting_since"] = now
-            ledger.log_event(paths, "task_awaiting_input", goal_id=gid,
-                             task_id=task.task_id, agent=prev_agent, question=question)
-            v.changed = True
-        info["awaiting_reason"] = question
-        # 有界上限：等人也不能无限占容量，超过 awaiting 上限仍判失败回收
-        v.fail_reason = _awaiting_timeout_reason(task, info, now)
+        _mark_awaiting(paths, gid, task, info, question, now, prev_agent, v)
         return
     idle_since = info.get("idle_since") or now
     info["idle_since"] = idle_since
@@ -177,6 +224,8 @@ def _judge_no_outbox(paths: Paths, gid: str, task: Task, info: dict, ostate: str
             started = now     # 刚恢复：硬上限按新时钟算，否则本轮底部守卫会把刚恢复的任务当场误杀
     elif st in herdr.READY_STATES:
         _on_ready(paths, gid, task, info, hname, st, ostate, started, now, prev_agent, v)
+    elif st in herdr.BLOCKED_STATES:
+        _on_blocked(paths, gid, task, info, hname, now, prev_agent, v)
     elif task.status == AWAITING_INPUT:
         # unknown + 等人：pane 本就静默、心跳不会刷新，不能按 last_alive 陈旧度判死——
         # 否则一次 herdr 抖动就关 pane、白耗重试、丢掉待答问题。只按 awaiting 上限判。
@@ -211,8 +260,33 @@ def _fail_inflight(paths: Paths, gid: str, task: Task, v: _Verdict, now: float,
                      no_alternate_agent=dispatch.all_eligible_tried(paths, task))
 
 
+def _apply_contract_violation(paths: Paths, gid: str, task: Task, res: Result, now: float,
+                              prev_agent: str, violations: list[str]) -> None:
+    """DONE 交付违反 artifact_contract：失败关闭，按 max_retries 重试/终态失败。
+
+    worker 自报 done 但产物形态不符（如分片 thread 时而数组时而裸字符串），放行会把漂移留给下游
+    渲染节点、靠人工打回才暴露；这里在收割点就挡下。先记 task_contract_violation（字段固定，供
+    optimize 计数），再记 task_failed（让 wait/复盘把它当作一次失败的状态变化）。"""
+    task.close_run("failed", now, res.written_at)
+    _mark_retry_or_failed(task)
+    task.result_summary = res.summary
+    task.artifacts = res.artifacts
+    task.error = f"{CONTRACT_ERROR_PREFIX}: " + "; ".join(violations)
+    ledger.log_event(paths, "task_contract_violation", goal_id=gid, task_id=task.task_id,
+                     agent=prev_agent, violations=violations)
+    ledger.log_event(paths, "task_failed", goal_id=gid, task_id=task.task_id,
+                     agent=prev_agent, new_status=task.status, retryable=None,
+                     reason=CONTRACT_ERROR_PREFIX,
+                     no_alternate_agent=dispatch.all_eligible_tried(paths, task))
+
+
 def _apply_done(paths: Paths, gid: str, task: Task, res: Result, now: float,
                 prev_agent: str) -> None:
+    if task.artifact_contract:
+        violations = contract_violations(task.artifact_contract, res.artifacts)
+        if violations:
+            _apply_contract_violation(paths, gid, task, res, now, prev_agent, violations)
+            return
     task.status = DONE
     task.close_run("done", now, res.written_at)
     task.result_summary = res.summary
@@ -350,7 +424,8 @@ def _missing_artifacts(arts: list[str]) -> list[str]:
 
     **只警告、不判失败**，理由是硬判会凭空造出一批假失败：存在性只是个启发式——worker 可能
     报相对路径（相对谁？协调者 cwd 未必是它的 cwd）、报目录、或报本就在别处的既有文件；而真
-    踩过的坑（产物 JSON 外层形态不符）压根不是存在性查得出来的，那类要靠 plan 里声明 schema。
+    踩过的坑（产物 JSON 外层形态不符）压根不是存在性查得出来的，那类靠 plan 里声明
+    artifact_contract、由 contract_violations 在收割时失败关闭。
     所以这里只当「低成本哨兵」：把可疑交付记进 task.artifact_warnings 并在 monitor 里 surface，
     由协调者按 skip/retask/reject 三杠杆处置，而不是让框架替它武断判死。
     """
@@ -360,4 +435,116 @@ def _missing_artifacts(arts: list[str]) -> list[str]:
             continue                      # 相对路径无从判（基准不确定），跳过不误报
         if not Path(p).exists():
             out.append(p)
+    return out
+
+
+def _json_type(v: Any) -> str:
+    """JSON 值的契约类型名（bool 先于 number 判：Python 里 bool 是 int 子类）。"""
+    if v is None:
+        return "null"
+    if isinstance(v, bool):
+        return "boolean"
+    if isinstance(v, (int, float)):
+        return "number"
+    if isinstance(v, str):
+        return "string"
+    if isinstance(v, list):
+        return "array"
+    if isinstance(v, dict):
+        return "object"
+    return type(v).__name__
+
+
+def _type_mismatch(v: Any, spec: str) -> str | None:
+    """值不符合类型声明时返回「实际类型」描述，符合返回 None。array<T> 逐元素查（空数组合规）。"""
+    actual = _json_type(v)
+    if not spec.startswith("array<"):
+        return None if actual == spec else actual
+    if actual != "array":
+        return actual
+    elem = spec[len("array<"):-1]
+    for k, x in enumerate(v):
+        if _json_type(x) != elem:
+            return f"array 第{k}个元素为 {_json_type(x)}"
+    return None
+
+
+def _glob_hit(path: str, pattern: str) -> bool:
+    """glob 不含 `/` 只比文件名，含 `/` 则比整条路径。"""
+    target = path if "/" in pattern else os.path.basename(path)
+    return fnmatch.fnmatchcase(target, pattern)
+
+
+def _check_contract_file(path: str, c: dict) -> list[str]:
+    """按一条契约校验一个产物文件，返回违约项（文件、条目序号、字段、期望/实际类型）。"""
+    if not os.path.isabs(path):
+        return [f"{path}: 非绝对路径，无法按契约校验（产物须报绝对路径）"]
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return [f"{path}: 文件不存在"]
+    except OSError as e:
+        return [f"{path}: 无法读取（{type(e).__name__}）"]
+    except ValueError as e:                    # JSONDecodeError / UnicodeDecodeError
+        return [f"{path}: 不是合法 JSON（{e}）"]
+    root = c.get("root")
+    if _json_type(data) != root:
+        return [f"{path}: 根类型 期望 {root} 实际 {_json_type(data)}"]
+    if root == "array":
+        items, label = data, "条目"
+    elif c.get("items_key"):
+        key = c["items_key"]
+        if key not in data:
+            return [f"{path}: 缺少条目数组键 {key!r}"]
+        if not isinstance(data[key], list):
+            return [f"{path}: {key} 期望 array 实际 {_json_type(data[key])}"]
+        items, label = data[key], key
+    else:
+        items, label = [data], "根对象"      # root=object 且无 items_key：根对象本身按字段契约查
+    required = list(c.get("required") or [])
+    fields = dict(c.get("fields") or {})
+    if not required and not fields:
+        return []
+    out: list[str] = []
+    for j, it in enumerate(items):
+        at = label if label == "根对象" else f"{label}[{j}]"
+        if not isinstance(it, dict):
+            out.append(f"{path}: {at} 期望 object 实际 {_json_type(it)}")
+            continue
+        missing = [f for f in required if it.get(f) is None]   # 缺键与 null 都算缺失
+        out.extend(f"{path}: {at} 缺少必填字段 {f!r}" for f in missing)
+        for f, spec in fields.items():
+            if f not in it or f in missing:
+                continue                       # 非必填可缺省；出现了（含 null）就必须类型对
+            act = _type_mismatch(it[f], spec)
+            if act is not None:
+                out.append(f"{path}: {at}.{f} 期望 {spec} 实际 {act}")
+    return out
+
+
+def contract_violations(contracts: list[dict], arts: list[str]) -> list[str]:
+    """按 task.artifact_contract 校验 DONE 交付上报的 artifacts，返回违约项（空=合规）。
+
+    每条契约在上报 artifacts 里按 glob 找文件：一个都没匹配到也算违约（声明了契约却没交对应产物）。
+    超过 MAX_CONTRACT_VIOLATIONS 条时截断，末尾补一条「另有 N 项」。
+
+    契约本身格式非法（如落盘态被外部改坏、未经 Board.validate）时不抛异常，把格式问题当违约项返回：
+    否则一个坏契约会在收割循环里抛错，中断该 Job 本轮全部任务的收割。"""
+    errs = artifact_contract_errors(contracts)
+    if errs:
+        return [f"契约格式非法: {e}" for e in errs]
+    # 同一文件在 artifacts 里重复上报时只校验一次，避免重复违约项挤占上限
+    uniq = list(dict.fromkeys(p for p in arts or [] if isinstance(p, str) and p))
+    out: list[str] = []
+    for c in contracts:
+        pattern = c.get("glob") or "*.json"
+        hits = [p for p in uniq if _glob_hit(p, pattern)]
+        if not hits:
+            out.append(f"契约 glob={pattern!r}: 上报的 artifacts 中无匹配文件")
+            continue
+        for p in hits:
+            out.extend(_check_contract_file(p, c))
+    if len(out) > MAX_CONTRACT_VIOLATIONS:
+        rest = len(out) - MAX_CONTRACT_VIOLATIONS
+        out = out[:MAX_CONTRACT_VIOLATIONS] + [f"…另有 {rest} 项违约未列出"]
     return out

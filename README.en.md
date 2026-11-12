@@ -101,9 +101,12 @@ uv run team dashboard       # open http://127.0.0.1:8787
 | 🧬 | **Reusable plan templates** | Keep the orchestration skeleton fixed and leave goals or stage descriptions as `{{slots}}`. One template can be instantiated many times concurrently. |
 | 📦 | **Shared artifacts, opt-in inheritance** | Cross-task artifacts live under the Job directory. Downstream nodes declare `see_artifacts` and the framework hands them the exact upstream files. |
 | 🛡 | **Retry · skip · reject** | Failed tasks retry automatically; unnecessary steps can be bypassed; a reviewer can send work back upstream with feedback accumulated as evidence. |
-| 💬 | **Human in the loop** | A worker that needs a decision pauses and asks; the coordinator relays the answer back into the same session. |
+| 💬 | **Human in the loop** | A worker that needs a decision pauses and asks (including AskUserQuestion / herdr `blocked` dialogs); the coordinator relays the answer back into the same session. |
 | 🔁 | **Event-driven waiting** | `wait` harvests every 3s and returns the moment any in-flight task delivers, fails, is rejected, or asks for input; a background `watch` keeps harvesting, timing out, and recycling panes while you are away. |
-| 🧠 | **Automatic retrospectives** | Opt-in: a settled Job spawns a retro Job that analyses the run and files suggestions in `coordinator/insights/backlog.json`, which `team-evolve` picks up. |
+| 🧾 | **Artifact contracts** | A task can declare `artifact_contract`. At harvest the framework matches JSON artifacts by glob and validates root type, item arrays, and field types; violations fail closed and the retry prompt echoes them. |
+| 🧠 | **Automatic retrospectives** | Opt-in: a settled Job spawns a retro Job that analyses the run (with a worker transcript index) and files suggestions in `coordinator/insights/backlog.json`, which `team-evolve` picks up. |
+| ♻️ | **Self-improvement pipelines** | `team-evolve` groups backlog suggestions into parallel worktrees with independent review and auto-merge; `team-optimize` reviews all Jobs in a time window, improves each flow's plan templates and agent prompts, then gates, merges, and writes an HTML report. |
+| 🔔 | **Job-level notifications** | Toast on Job start / needs-input / rejection / completion (not on individual worker completion); disable with `notify: {enabled: false}` in `team.yaml`. |
 | 📊 | **Live dashboard** | Visualize every Job's DAG, node status, artifacts, reject history, agent load, and plan templates — all locally. |
 
 ## How it works
@@ -146,6 +149,7 @@ agents/<name>/
     <goal>__<task>/       per-task cwd, removed when the task finishes
   inbox/  outbox/         task signals / result signals
 shared/artifacts/         cross-agent artifacts (namespaced by goal_id)
+.worktrees/               isolated worktrees for team optimize / evolve (git-ignored)
 agent_team/               core Python package
 tests/                    pytest suite
 docs/images/              static assets for the README
@@ -195,20 +199,23 @@ The `team` CLI is the engine behind the skills, so you rarely type it by hand. W
 | Inspect | `dashboard` | Start the local live dashboard (defaults to `127.0.0.1:8787`, no auth) |
 | Retro | `retro` | `status` / `on` / `off` for retro switches; `run <goal_id>` spawns a retro Job manually |
 | Retro | `insights` | List / show / mark the optimisation suggestions collected from retrospectives |
+| Self-improve | `evolve` | `start` / `group` / `worktree` / `prompt` / `check` / `merge` / `finish`: deterministic half of applying the backlog |
+| Self-improve | `optimize` | `collect` / `bookmark` / `worktree` / `prompt` / `check` / `merge` / `report` …: periodic per-flow optimisation campaign |
 | Manage | `job` | Remove a Job (artifacts are kept by default) |
 
 Scheduling commands accept `--dry-run`: they write signals without spawning workers, which is handy for validating a plan.
 
 ## Talk to your agents
 
-Four built-in framework skills in `.claude/skills/` cover the full loop, including self-improvement (`find-skills` in the same directory is a generic skill-search tool, not part of the framework flow):
+Five built-in framework skills in `.claude/skills/` cover the full loop, including self-improvement (`find-skills` in the same directory is a generic skill-search tool, not part of the framework flow):
 
 | Skill | Trigger | Responsibility |
 |---|---|---|
 | `team-build` | “Build a team / orchestrate X” | Clarify the goal → create agents → write a plan → dry-run |
 | `agent-create` | “Create / add an agent” | Create a single agent interactively and register it |
 | `team-run` | “Run it / keep going / let the team work” | Drive tick + wait to completion and report |
-| `team-evolve` | “Improve the project / review retro suggestions” | Pick high-value suggestions from the retro backlog, verify and apply them, mark as applied |
+| `team-evolve` | “Improve the project / review retro suggestions” | Merge and group suggestions → parallel worktrees → independent review → merge to main |
+| `team-optimize` | “Weekly flow optimisation / review last week's runs” | Select flows in a time window → per-flow worktree + review → gate → merge → HTML report |
 
 ## Plan templates
 
@@ -236,6 +243,17 @@ uv run team plan coordinator/plans/<your-template>.json \
 
 Missing slots, dangling dependencies, cycles, or invalid `see_artifacts` / `reject_to` references are rejected at load time — a half-baked goal never reaches a worker.
 
+Add `artifact_contract` (optional) when downstream nodes need a fixed artifact shape; declare it once on a fan-out template and expanded shards inherit it:
+
+```json
+{"task_id": "collect-a", "capabilities": ["collect"],
+ "artifact_contract": [{"glob": "*.json", "root": "array",
+                        "required": ["title", "url"],
+                        "fields": {"title": "string", "url": "string"}}]}
+```
+
+At harvest the framework matches artifacts by glob and validates each file; **a missing match counts as a violation**. Violations fail closed — retry per `max_retries` (the retry prompt echoes them) or fail terminally, with `task.error` naming the file, entry, field, and expected vs actual type.
+
 ## Worker completion protocol
 
 The generic delivery protocol (read the inbox, write the outbox, artifact directory, human-in-the-loop) lives in `agent_team/worker_protocol.md` and is injected into the bootstrap prompt by the framework — each agent's `prompt.md` only describes its own role.
@@ -253,6 +271,7 @@ Workers read `inbox/<goal_id>__<task_id>.json` and write structured results to `
 ```
 
 - `status`: `done` / `failed`. Reviewer nodes may emit `reject` to send upstream work back.
+- When the signal carries a non-empty `artifact_contract`, `artifacts` must include a JSON file matching every contract glob with a conforming structure.
 - Add `"retryable": false` for permanent failures to skip pointless retries.
 - The coordinator only trusts this structured result and never parses free-form terminal output.
 

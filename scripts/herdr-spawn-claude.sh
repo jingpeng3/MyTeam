@@ -89,7 +89,24 @@ echo "新 pane: $pane_id"
 
 # 2) 在该 pane 起 Claude；起完等它进入可输入状态
 #    --dangerously-skip-permissions 作为 native agent 参数，放在 -- 之后透传给 claude
-h agent start "$name" --kind claude --pane "$pane_id" -- --dangerously-skip-permissions
+#    注意：刚 tab create 出来的 pane，其 shell 可能还没被 herdr 识别为可用，
+#    agent start 会返回 agent_pane_busy / "not an available shell"，重试即可。
+start_agent() {
+  local attempt=1 max=20 out
+  while (( attempt <= max )); do
+    if out=$(h agent start "$name" --kind claude --pane "$pane_id" -- --dangerously-skip-permissions 2>&1); then
+      printf '%s\n' "$out"; return 0
+    fi
+    if grep -q 'agent_pane_busy\|not an available shell' <<<"$out"; then
+      sleep 0.5; attempt=$((attempt+1)); continue
+    fi
+    printf '%s\n' "$out" >&2; return 1
+  done
+  printf '%s\n' "$out" >&2
+  echo "错误: pane $pane_id 的 shell 迟迟未就绪，无法启动 agent" >&2
+  return 1
+}
+start_agent
 h agent wait "$name" --timeout 30000 || true
 echo "已启动 agent: $name"
 

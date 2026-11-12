@@ -101,9 +101,12 @@ uv run team dashboard       # 打开 http://127.0.0.1:8787
 | 🧬 | **可复用流程模板** | 编排骨架固定，目标与阶段描述留成 `{{槽}}`；同一模板可实例化多个批次并发运行。 |
 | 📦 | **产物共享与按需继承** | 跨任务产物按 Job 集中存放；下游显式声明 `see_artifacts`，框架自动把上游文件递给它。 |
 | 🛡 | **重试 · 跳过 · 打回** | 失败自动重试；无需执行的步骤可绕过；评审不合格可打回上游连同后代重跑，并注入历史意见。 |
-| 💬 | **人机协作** | worker 遇到需要拍板的点会停下来提问，协调者把答复回注后它继续执行。 |
+| 💬 | **人机协作** | worker 遇到需要拍板的点（含 AskUserQuestion 等 herdr `blocked` 弹窗）会停下来提问，协调者把答复回注后它继续执行。 |
 | 🔁 | **事件驱动等待** | `wait` 每 3s 收割一次，任一在途任务交付/失败/打回/等人就立即返回；后台 `watch` 在协调者离开时继续收割、判超时、回收 pane。 |
-| 🧠 | **流程自动复盘** | 可选开关：Job 收敛后自动拉一个复盘 Job 分析执行过程，建议沉淀进 `coordinator/insights/backlog.json`，由 `team-evolve` 挑选落地。 |
+| 🧾 | **产物结构契约** | 任务可声明 `artifact_contract`：收割时按 glob 找到 JSON 产物并校验根类型、条目数组与字段类型，违约失败关闭，重试时把违约项回显给 worker。 |
+| 🧠 | **流程自动复盘** | 可选开关：Job 收敛后自动拉一个复盘 Job 分析执行过程（含 worker 会话转录索引），建议沉淀进 `coordinator/insights/backlog.json`，由 `team-evolve` 挑选落地。 |
+| ♻️ | **自优化流水线** | `team-evolve` 把建议池分组后多 worktree 并行开发/独立评审/自动合并；`team-optimize` 回顾一个时间窗内真实跑过的 Job，逐流程优化 plan 模板与 agent prompt，门禁后自动合并并出 HTML 报告。 |
+| 🔔 | **关键节点提醒** | 流程开始 / 需人介入 / 打回 / 收敛时弹 herdr 通知（单个 worker 完成不弹；`team.yaml` 写 `notify: {enabled: false}` 关闭）。 |
 | 📊 | **实时看板** | 本机可视化各 Job 的 DAG、节点状态、产物、打回记录、Agent 负载与流程模板。 |
 
 ## 工作原理
@@ -146,6 +149,7 @@ agents/<name>/
     <goal>__<task>/       worker 本任务独占 cwd，任务结束即清
   inbox/  outbox/         任务信号 / 结果信号
 shared/artifacts/         跨 agent 共享产物（按 goal_id 分子目录）
+.worktrees/               team optimize / evolve 的隔离 worktree（git 忽略）
 agent_team/               核心 Python 包
 tests/                    pytest 用例
 docs/images/              README 截图等静态资源
@@ -195,20 +199,23 @@ scripts/install.sh --uninstall
 | 查看 | `dashboard` | 启动本机实时看板（默认 `127.0.0.1:8787`，无鉴权） |
 | 复盘 | `retro` | `status` / `on` / `off` 管复盘开关；`run <goal_id>` 手动为已收敛 Job 建复盘 Job |
 | 复盘 | `insights` | 查看 / 标记复盘沉淀的优化建议（`list` / `show` / `mark`） |
+| 自优化 | `evolve` | `start` / `group` / `worktree` / `prompt` / `check` / `merge` / `finish`：把建议池批量落地的确定性部分 |
+| 自优化 | `optimize` | `collect` / `bookmark` / `worktree` / `prompt` / `check` / `merge` / `report` …：周期性流程优化 campaign |
 | 管理 | `job` | 移除 Job（默认保留产物） |
 
 调度命令都支持 `--dry-run`：只写信号、不真正拉起 worker，适合验证编排。
 
 ## 与 Agent 对话
 
-`.claude/skills/` 下内置四个框架 skill，覆盖从搭团队到跑完再到自我增强的完整闭环（同目录的 `find-skills` 是通用的 skill 搜索工具，不属于框架流程）：
+`.claude/skills/` 下内置五个框架 skill，覆盖从搭团队到跑完再到自我增强的完整闭环（同目录的 `find-skills` 是通用的 skill 搜索工具，不属于框架流程）：
 
 | Skill | 触发方式 | 职责 |
 |---|---|---|
 | `team-build` | 「建个团队 / 帮我编排 XX」 | 澄清目标 → 建 agent → 写 plan → dry-run 验证 |
 | `agent-create` | 「建个 / 加个 agent」 | 对话式新建单个 agent 并登记进团队 |
 | `team-run` | 「跑起来 / 继续跑 / 让团队干活」 | 逐轮 tick + wait 驱动到完成并汇报 |
-| `team-evolve` | 「优化一下项目 / 看看复盘建议」 | 从复盘建议池挑选高价值建议，核实后落地并标记采纳 |
+| `team-evolve` | 「优化一下项目 / 看看复盘建议」 | 分析合并建议 → 分组多 worktree 并行开发 → 独立评审 → 合并 main |
+| `team-optimize` | 「周度流程优化 / 回顾上周的流程」 | 按时间窗选流程 → 每流程 worktree 优化 + 独立评审 → 门禁后合并 → HTML 报告 |
 
 ## Plan 模板
 
@@ -236,6 +243,17 @@ uv run team plan coordinator/plans/<你的模板>.json \
 
 漏填槽位、悬空依赖、成环、非法的 `see_artifacts` / `reject_to` 都会在载入期直接拦下，不会把半成品发给 worker。
 
+需要固定产物结构时给节点加 `artifact_contract`（可选）：下游要按固定结构解析某节点的 JSON 产物时声明，fan-out 模板声明一次、展开出的子任务自动继承。
+
+```json
+{"task_id": "collect-a", "capabilities": ["collect"],
+ "artifact_contract": [{"glob": "*.json", "root": "array",
+                        "required": ["title", "url"],
+                        "fields": {"title": "string", "url": "string"}}]}
+```
+
+收割时框架按 glob 在 `artifacts` 里找文件逐条校验；**无匹配文件也算违约**。违约失败关闭——按 `max_retries` 重试（引导语回显违约项）或终态失败，`task.error` 写明文件/字段/期望与实际类型。
+
 ## worker 完成协议
 
 通用交付协议（读 inbox、写 outbox、产物目录、等人介入）集中在 `agent_team/worker_protocol.md`，由框架在派发时注入引导语——agent 的 `prompt.md` 只写本角色怎么干活，不再各自抄一份。
@@ -253,6 +271,7 @@ worker 读取 `inbox/<goal_id>__<task_id>.json`，完成后把结构化结果写
 ```
 
 - `status`：`done` / `failed`；评审节点可用 `reject` 触发上游返工。
+- 信号里 `artifact_contract` 非空时，`artifacts` 必须包含匹配每条契约 glob 的 JSON 文件，且结构符合契约。
 - 永久性失败可加 `"retryable": false`，跳过无谓重试。
 - 协调者只认这个结构化结果，不解析 pane 自由文本。
 

@@ -27,6 +27,26 @@ PROVISION_MAX_RETRIES = 2
 # subprocess 往返，串行拉起会把「一轮分派」拉成 N×~12s、并在此期间冻结所有在途 worker 的
 # outbox 收割与超时判定。并发 provisioning 把这段关键路径压回 ~1 个 pane 启动时长。
 PROVISION_PARALLELISM = 6
+# 同轮短退避重试：ProvisionError 后不必干等下一轮 tick——协调者停顿时那可能是
+# 十几分钟的空窗。同轮重试预算与跨 tick 的 PROVISION_MAX_RETRIES **相互独立**：provision_attempts
+# 仍按「失败的分派调用」每次 +1，第 MAX+1 个失败 tick 才 FAILED（终态时间窗与基线一致）；同轮重试
+# 只在一次调用内多给 PROVISION_ROUND_RETRIES 次机会，不消耗跨 tick 预算。
+PROVISION_ROUND_RETRIES = 1
+# 同轮第 i 次重试前的退避秒数（取第 i 个，超出取最后一个）。
+PROVISION_BACKOFF_S: tuple[float, ...] = (2.0, 5.0)
+# 本轮分派的同轮重试总时长上限（从整轮起点算）：剩余时长不够一次退避就不再同轮重试，交给下一轮。
+# 它约束的是「重试拖长 tick」的代价——tick 阻塞期间在途 worker 的收割与超时判定都会被推迟。
+PROVISION_ROUND_BUDGET_S = 20.0
+
+
+def _sleep(seconds: float) -> None:
+    """退避等待；独立成模块级函数，供测试打桩为零等待。"""
+    time.sleep(seconds)
+
+
+def _clock() -> float:
+    """同轮重试预算用的单调时钟；独立成模块级函数，供测试打桩。"""
+    return time.monotonic()
 
 
 class ProvisionError(Exception):
@@ -34,7 +54,14 @@ class ProvisionError(Exception):
 
     与业务失败（worker 报 status=failed）语义不同：走独立的 infra 重试预算，不计入
     max_retries、不污染 tried_agents，避免「连 worker 都没起起来」被当成一次业务尝试。
+    stage = 失败环节（create_pane / start_agent / prompt）；round_failures = 本次分派调用内的失败次数
+    （含同轮重试），只用于事件里的 round_retries，不计入 provision_attempts。
     """
+
+    def __init__(self, msg: str, stage: str = "") -> None:
+        super().__init__(msg)
+        self.stage = stage
+        self.round_failures = 1
 
 
 def eligible_candidates(paths: Paths, task: Task,
@@ -160,10 +187,14 @@ def _write_worker_skill_overrides(paths: Paths, cwd: str, m: AgentManifest) -> N
 
 def _provision_herdr(paths: Paths, wid: str, m: AgentManifest, gid: str,
                      task: Task, done_deps: list[str],
-                     inherited: list[dict] | None = None) -> tuple[str, str]:
+                     inherited: list[dict] | None = None,
+                     provision_attempt: int = 0, round_retry: int = 0) -> tuple[str, str, str]:
     """纯 herdr 拉起 + 写本任务 inbox；**线程安全**（只碰 herdr 与本任务独占的 inbox 文件，
-    不读写共享的 runtime.json/board）。返回 (pane_id, herdr_name)，失败抛 ProvisionError。
+    不读写共享的 runtime.json/board，task 只读）。返回 (pane_id, herdr_name, agent_session)，失败抛 ProvisionError。
+    agent_session = herdr 上报的 worker 会话 ID（Claude 的 session uuid，复盘据此定位 transcript），可能为空。
 
+    provision_attempt = 本轮开始前已累计的跨 tick 失败数、round_retry = 同轮第几次重试，由调用方传入
+    生成唯一 label——同轮重试时 task.provision_attempts 不变（只在主线程改），单靠它会撞名。
     inbox 写入推迟到 start_agent 成功之后、prompt 之前——避免「早写 inbox 但 provisioning 失败/
     换人」后遗留无人回收的孤儿 inbox；失败路径显式清掉可能已写的 inbox。
     """
@@ -171,41 +202,82 @@ def _provision_herdr(paths: Paths, wid: str, m: AgentManifest, gid: str,
     os.makedirs(cwd, exist_ok=True)                       # 深路径自动建父级基座 workspace
     _write_worker_skill_overrides(paths, cwd, m)         # cwd 内落 settings.json：对本 worker 关掉协调者专用 skill + 该 agent 追加的 hidden_skills
     archive_task_artifacts(paths, gid, task)            # 重派前归档上一轮产物、留空当前目录（首派无操作，顺带建产物目录）
-    # herdr agent 名须唯一；a{业务尝试}p{infra尝试} 让每次(重)分派、每次 infra 重试都用新名。
-    label = f"{m.name}:{gid}:{task.task_id}:a{task.attempts + 1}p{task.provision_attempts}"
+    # herdr agent 名须唯一；a{业务尝试}p{跨 tick infra 尝试}r{同轮重试} 让每次(重)分派、每次 infra 重试都用新名。
+    label = f"{m.name}:{gid}:{task.task_id}:a{task.attempts + 1}p{provision_attempt}r{round_retry}"
     try:
         pane_id = herdr.create_pane(wid, cwd, label)
     except herdr.HerdrError as e:
-        raise ProvisionError(f"create_pane failed: {e}") from e
+        # 没拿到 pane：事件不带 pane_id，但要带 stage/error，report 才能区分 infra 抖动与协调者未 tick
+        ledger.log_event(paths, "dispatch_provision_failed", goal_id=gid,
+                   task_id=task.task_id, agent=m.name, stage="create_pane", error=str(e),
+                   provision_attempt=provision_attempt, round_retry=round_retry)
+        raise ProvisionError(f"create_pane failed: {e}", stage="create_pane") from e
+    stage = "start_agent"
     try:
         agent_name = herdr.start_agent(pane_id, label, m.runtime.kind,
                                        m.runtime.flags or None,
                                        model=m.runtime.model)
         bootstrap.write_inbox_signal(paths, m.name, gid, task, done_deps, inherited)
-        # 分派 fire-and-forget：完成靠 outbox 信号，不在此阻塞等 turn 结束
-        herdr.prompt_agent(agent_name, bootstrap.build_bootstrap(paths, m, gid, task))
+        stage = "prompt"
+        # 只等到 worker 开始执行（herdr 观察到 working/blocked），不等 turn 结束——完成仍靠 outbox 信号。
+        # 没开始执行（agent_prompt_stalled/timeout）就当场失败、关 pane 走 provision 重试，
+        # 而不是等 monitor 宽限期过后才判「never started executing」。
+        agent_session = herdr.submit_task_prompt(agent_name, bootstrap.build_bootstrap(paths, m, gid, task))
     except herdr.HerdrError as e:
         with contextlib.suppress(herdr.HerdrError):
             herdr.close_pane(pane_id)
         signals.clear_task_signals(paths, m.name, gid, task.task_id)   # 清掉可能已写的 inbox
         ledger.log_event(paths, "dispatch_provision_failed", goal_id=gid,
                    task_id=task.task_id, agent=m.name, pane_id=pane_id,
-                   provision_attempt=task.provision_attempts)
-        raise ProvisionError(f"start/prompt failed: {e}") from e
-    return pane_id, agent_name
+                   stage=stage, error=str(e), provision_attempt=provision_attempt,
+                   round_retry=round_retry)
+        raise ProvisionError(f"{stage} failed: {e}", stage=stage) from e
+    return pane_id, agent_name, agent_session
 
 
-def _timed_provision(*args: Any) -> tuple[str, str, float]:
-    """_provision_herdr + 计时：返回 (pane_id, herdr_name, 拉起耗时秒)，供运行记录的 provision_s。"""
+def _provision_with_retry(paths: Paths, wid: str, m: AgentManifest, gid: str,
+                          task: Task, done_deps: list[str],
+                          inherited: list[dict] | None,
+                          deadline: float) -> tuple[str, str, float, int, str]:
+    """_provision_herdr + 同轮有限短退避重试 + 计时；**线程安全**：task 只读，不碰 board / runtime.json，
+    只追加 run.log 事件、读写本任务独占的 inbox 与产物目录（与基线 _provision_herdr 一致）。
+
+    成功返回 (pane_id, herdr_name, 拉起耗时秒(含退避), 本轮失败次数, agent_session)；失败抛最后一次的异常，其
+    round_failures = 本轮失败次数，交主线程 _handle_provision_fail（provision_attempts 固定 +1）。
+    同轮重试受两重上限：PROVISION_ROUND_RETRIES 次；deadline（整轮起点 + PROVISION_ROUND_BUDGET_S），
+    剩余时长不够这次退避就不再同轮重试、交给下一轮 tick。
+    只对 ProvisionError 重试；其它异常（OSError 等）不重试，带上本轮失败数原样抛出。
+    """
     t0 = time.time()
-    pane_id, agent_name = _provision_herdr(*args)
-    return pane_id, agent_name, time.time() - t0
+    base = task.provision_attempts               # 本轮开始前已累计的跨 tick infra 失败数（只读快照）
+    failures = 0
+    while True:
+        try:
+            pane_id, agent_name, agent_session = _provision_herdr(
+                paths, wid, m, gid, task, done_deps, inherited,
+                provision_attempt=base, round_retry=failures)
+            return pane_id, agent_name, time.time() - t0, failures, agent_session
+        except ProvisionError as e:
+            failures += 1
+            e.round_failures = failures
+            if failures > PROVISION_ROUND_RETRIES:
+                raise
+            delay = PROVISION_BACKOFF_S[min(failures - 1, len(PROVISION_BACKOFF_S) - 1)]
+            if _clock() + delay > deadline:
+                raise
+            _sleep(delay)
+        except Exception as e:
+            e.round_failures = failures + 1       # 事件里的 round_retries 要算上同轮先前的失败
+            raise
 
 
 def _commit_dispatch(paths: Paths, board: Board, task: Task, m: AgentManifest,
                      pane_id: str, agent_name: str,
-                     provision_s: float | None = None) -> None:
-    """provisioning 成功后在**主线程**串行提交状态：bump 业务尝试、写账本、落盘、记事件。"""
+                     provision_s: float | None = None,
+                     round_failures: int = 0, agent_session: str = "") -> None:
+    """provisioning 成功后在**主线程**串行提交状态：bump 业务尝试、写账本、落盘、记事件。
+    round_failures = 本轮成功前的同轮失败数（>0 时以 round_retries 记进 dispatched 事件，供复盘看出被同轮重试救回）。
+    agent_session = worker 会话 ID，非空时记进账本与 dispatched 事件，复盘据此定位 worker transcript。"""
     gid = board.goal_id
     rkey = runtime_key(gid, task.task_id)
     task.agent = m.name                  # 关键：monitor 按 task.agent 读 outbox，必须回填被分派的 agent
@@ -223,35 +295,52 @@ def _commit_dispatch(paths: Paths, board: Board, task: Task, m: AgentManifest,
                     "dispatched_at": now,        # 首次分派时刻，绝对上限用，永不刷新
                     "last_alive_at": now,        # 存活心跳，静默死亡判定用，可刷新
                     "idle_since": None}          # 首次观测到 idle 的时刻，宽限窗锚点
+        if agent_session:
+            rt[rkey]["agent_session"] = agent_session
         ledger.save(paths, rt)
     task.status = DISPATCHED
     task.open_run(m.name, now, provision_s)        # 计时起点：worker 已接单
     board.save(paths)
+    extra = {"round_retries": round_failures} if round_failures else {}
+    if agent_session:
+        extra["agent_session"] = agent_session
     ledger.log_event(paths, "dispatched", goal_id=gid, task_id=task.task_id,
-               agent=m.name, attempt=task.attempts, dry_run=False)
+               agent=m.name, attempt=task.attempts, dry_run=False, **extra)
 
 
 def _handle_provision_fail(paths: Paths, board: Board, task: Task,
                            err: Exception) -> None:
-    """provisioning 耗尽/失败的收尾：走独立 infra 预算，不消耗 max_retries、不污染 tried_agents。"""
+    """provisioning 耗尽/失败的收尾：走独立 infra 预算，不消耗 max_retries、不污染 tried_agents。
+
+    只在主线程调用。provision_attempts 按失败的分派调用固定 +1（同轮重试不额外计数，见
+    PROVISION_ROUND_RETRIES）。provision_retry 带原因（error/stage）、同轮已重试次数（err.round_failures
+    缺省 1 → 0）与 next_retry，让 report 能区分 infra 抖动与协调者未 tick。
+    """
+    failures = getattr(err, "round_failures", 1)
+    stage = getattr(err, "stage", "") or "dispatch"
     task.provision_attempts += 1
     if task.provision_attempts > PROVISION_MAX_RETRIES:
         task.status = FAILED
-        task.error = f"provisioning failed after {task.provision_attempts} tries: {err}"
+        # 只写失败的 tick 数：此前各轮的同轮重试次数不持久化，herdr 实际拉起总次数拿不准，不编数字
+        task.error = f"provisioning failed after {task.provision_attempts} rounds: {err}"
         ledger.log_event(paths, "dispatch_error", goal_id=board.goal_id,
                    task_id=task.task_id, error=str(err), kind="provision_exhausted",
-                   new_status=task.status)
+                   stage=stage, new_status=task.status)
     else:
         task.agent = ""              # infra 重试下轮可容量感知地换 eligible agent（不算换人绕障）
         ledger.log_event(paths, "provision_retry", goal_id=board.goal_id,
-                   task_id=task.task_id, provision_attempt=task.provision_attempts)
+                   task_id=task.task_id, provision_attempt=task.provision_attempts,
+                   stage=stage, error=str(err), round_retries=failures - 1,
+                   next_retry="next_tick")
     board.save(paths)
 
 
 def dispatch_task(paths: Paths, board: Board, task: Task,
                   manifest: AgentManifest | None = None,
                   dry_run: bool = False) -> str:
-    """为一个 ready 任务分派 agent（串行路径，供 dry-run 与直接调用）；返回被分派的 agent name。"""
+    """为一个 ready 任务分派 agent（串行路径，供 dry-run 与直接调用）；返回被分派的 agent name。
+    真实拉起与并发路径共用 _provision_with_retry（同轮短退避重试，预算从本次调用起算）；
+    失败抛出的异常带 round_failures，由调用方（_try_dispatch）交 _handle_provision_fail 收尾。"""
     m = manifest or (load_manifest(paths, task.agent) if task.agent
                      else best_agent(paths, task.capabilities))
     if m is None:
@@ -278,10 +367,13 @@ def dispatch_task(paths: Paths, board: Board, task: Task,
         return m.name
 
     wid = _ensure_team_wid(paths, resolve_workspace(m))
-    pane_id, agent_name, prov_s = _timed_provision(paths, wid, m, gid, task,
-                                                   board.done_deps(task),
-                                                   board.inherited_artifacts(task))
-    _commit_dispatch(paths, board, task, m, pane_id, agent_name, provision_s=prov_s)
+    deadline = _clock() + PROVISION_ROUND_BUDGET_S
+    pane_id, agent_name, prov_s, fails, sess = _provision_with_retry(paths, wid, m, gid, task,
+                                                                     board.done_deps(task),
+                                                                     board.inherited_artifacts(task),
+                                                                     deadline)
+    _commit_dispatch(paths, board, task, m, pane_id, agent_name, provision_s=prov_s,
+                     round_failures=fails, agent_session=sess)
     return m.name
 
 
@@ -309,7 +401,9 @@ def run_dispatch_round(paths: Paths, boards: list[Board], dry_run: bool,
     hold：{goal_id: {task_id}}，本轮不派、留 READY 进 held（见 coordinator.tick 的 hold_new_ready）。
     并发化 provisioning 是 round-4 头号共识修复：herdr 拉起是各自独立的阻塞 subprocess，串行会把
     一轮分派拉成 N×~12s 并冻结所有在途 worker 的监控/超时判定；这里把拉起并发、状态提交仍串行。
+    同轮短退避重试发生在各自线程里（并行退避、不串行累加），总时长上限按整轮起点统一计算。
     """
+    deadline = _clock() + PROVISION_ROUND_BUDGET_S       # 同轮重试预算：整轮共用一个截止点
     active = ledger.active_by_job_agent(paths)
     reserved: dict[tuple[str, str], int] = {}
     group_active = _active_by_job_group(boards)          # fan-out 组级并发闸：本轮开始前各组在途数
@@ -359,7 +453,7 @@ def run_dispatch_round(paths: Paths, boards: list[Board], dry_run: bool,
     provisioned: dict[int, Any] = {}
     workers = min(len(jobs), PROVISION_PARALLELISM)
     with ThreadPoolExecutor(max_workers=workers) as ex:
-        futs = {i: ex.submit(_timed_provision, paths, wid, m, b.goal_id, t, dd, inh)
+        futs = {i: ex.submit(_provision_with_retry, paths, wid, m, b.goal_id, t, dd, inh, deadline)
                 for i, (b, t, m, dd, inh) in enumerate(jobs)}
         for i, fut in futs.items():
             try:
@@ -370,7 +464,8 @@ def run_dispatch_round(paths: Paths, boards: list[Board], dry_run: bool,
     for i, (b, t, m, _dd, _inh) in enumerate(jobs):
         res = provisioned[i]
         if isinstance(res, tuple):
-            _commit_dispatch(paths, b, t, m, res[0], res[1], provision_s=res[2])
+            _commit_dispatch(paths, b, t, m, res[0], res[1], provision_s=res[2],
+                             round_failures=res[3], agent_session=res[4])
             out[b.goal_id]["dispatched"].append(t.task_id)
         elif isinstance(res, ProvisionError):
             _handle_provision_fail(paths, b, t, res)

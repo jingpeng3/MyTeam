@@ -12,8 +12,11 @@
 """
 from __future__ import annotations
 
+import difflib
+import glob
 import hashlib
 import json
+import os
 import re
 import time
 from pathlib import Path
@@ -28,6 +31,7 @@ RETRO_PREFIX = "retro-"
 RETRO_TASK = "analyze-run"
 RETRO_CAP = "flow-retro"
 SUGGESTIONS_FILE = "suggestions.json"
+TRANSCRIPTS_FILE = "transcripts.json"
 STATUSES = ("open", "applied", "dismissed")
 _IMPACT = {"high": 3.0, "medium": 2.0, "low": 1.0}
 _EFFORT = {"low": 0.5, "medium": 0.0, "high": -0.5}
@@ -155,7 +159,32 @@ def _write_inputs(paths: Paths, board: Board, rgid: str) -> Path:
                 except json.JSONDecodeError:
                     continue
     (d / "events.jsonl").write_text("\n".join(events) + ("\n" if events else ""), encoding="utf-8")
+    atomic_write_json(d / TRANSCRIPTS_FILE, _transcripts(events))
     return d
+
+
+def _claude_projects_dir() -> Path:
+    base = os.environ.get("CLAUDE_CONFIG_DIR", "").strip()
+    return (Path(base).expanduser() if base else Path.home() / ".claude") / "projects"
+
+
+def _transcripts(event_lines: list[str]) -> list[dict[str, Any]]:
+    """从 dispatched 事件里的 agent_session（herdr 上报的 worker 会话 ID）定位每次分派的 worker transcript。
+
+    Claude 会话记录落在 <claude 配置目录>/projects/<cwd 编码>/<session>.jsonl；按 ID 搜一层目录，
+    不依赖 cwd 编码规则。找不到文件时 path 为 null，只留会话 ID。"""
+    root = _claude_projects_dir()
+    out: list[dict[str, Any]] = []
+    for line in event_lines:
+        e = json.loads(line)
+        sid = e.get("agent_session")
+        if e.get("event") != "dispatched" or not isinstance(sid, str) or not sid:
+            continue
+        hits = sorted(root.glob(f"*/{glob.escape(sid)}.jsonl")) if root.is_dir() else []
+        out.append({"task_id": e.get("task_id"), "agent": e.get("agent"),
+                    "attempt": e.get("attempt"), "agent_session": sid,
+                    "path": str(hits[0]) if hits else None})
+    return out
 
 
 def _retro_goal(paths: Paths, board: Board, input_dir: Path) -> str:
@@ -171,6 +200,8 @@ def _retro_goal(paths: Paths, board: Board, input_dir: Path) -> str:
         "材料（只读）：",
         f"- Job 报告（任务状态/摘要/产物/计时/打回/失败）：{input_dir / 'report.json'}",
         f"- 本 Job 调度事件流（JSONL：dispatched/task_done/task_failed/task_timeout/task_rejected/task_retasked…）：{input_dir / 'events.jsonl'}",
+        f"- 每次分派的 worker 会话记录索引（task_id/attempt → transcript JSONL 路径，可能为空；"
+        f"worker 实际做了什么、卡在哪一步看这里，文件大，按需 grep 不要整读）：{input_dir / TRANSCRIPTS_FILE}",
         f"- Job 看板原始状态（含每次运行记录 runs）：{paths.job_file(gid)}",
         f"- Job 产物目录：{paths.job_artifacts_dir(gid)}",
         "- plan 模板：" + ("、".join(str(p) for p in tpls) if tpls else "未匹配到模板（可能是临时 plan）"),
@@ -222,8 +253,26 @@ def _norm(s: Any) -> str:
     return re.sub(r"\s+", " ", str(s or "")).strip().lower()
 
 
+# 指纹只做字面比较会把「同一问题换个措辞」登记成多条（曾有 3 组近重复，虚增复现计数）。
+# 故先去掉不影响语义的差异：target 里的 `:行号`/`:12-18 附近`、title 的引号与标点。
+_LINE_REF_RE = re.compile(r"[（(]?\s*[:：]\s*L?\d+(?:\s*[-–~]\s*\d+)?(?:\s*附近)?\s*[)）]?")
+_TITLE_NOISE_RE = re.compile(r"[\"'`“”‘’「」『』《》〈〉（）()【】\[\]\s]+")
+# 登记时的二次相似合并：标题高度相似，或同一 target 主文件且标题中度相似，视为同一问题。
+SIMILAR_TITLE_RATIO = 0.86
+SIMILAR_TITLE_RATIO_SAME_TARGET = 0.6
+
+
+def _fingerprint_target(target: Any) -> str:
+    return _norm(_LINE_REF_RE.sub("", str(target or "")))
+
+
+def _fingerprint_title(title: Any) -> str:
+    return _TITLE_NOISE_RE.sub("", _norm(title))
+
+
 def _fingerprint(s: dict[str, Any]) -> str:
-    raw = "|".join(_norm(s.get(k)) for k in ("scope", "target", "title"))
+    raw = "|".join((_norm(s.get("scope")), _fingerprint_target(s.get("target")),
+                    _fingerprint_title(s.get("title"))))
     return "ins-" + hashlib.sha1(raw.encode("utf-8")).hexdigest()[:8]
 
 
@@ -260,11 +309,42 @@ def _suggestions_path(paths: Paths, board: Board) -> Path | None:
     return next((p for p in cands if p.is_file()), None)
 
 
+def _similar_item(items: list[dict[str, Any]], s: dict[str, Any]) -> dict[str, Any] | None:
+    """指纹没命中时的二次相似合并：同 scope 且标题足够像 → 视为同一问题。
+
+    只与 open/applied 比：dismissed 是不采纳，不该被后来的相似条目悄悄吞掉。
+    返回最相似的一条（并列取更像的），没有则 None。"""
+    scope = "flow" if _norm(s.get("scope")) == "flow" else "project"
+    title = _fingerprint_title(s.get("title"))
+    if not title:
+        return None
+    tgt = _fingerprint_target(s.get("target"))
+    best: tuple[dict[str, Any], float] | None = None
+    for it in items:
+        if it.get("status") == "dismissed" or it.get("scope") != scope:
+            continue
+        other = _fingerprint_title(it.get("title"))
+        if not other:
+            continue
+        ratio = difflib.SequenceMatcher(None, title, other).ratio()
+        same_target = bool(tgt) and tgt == _fingerprint_target(it.get("target"))
+        if ratio >= SIMILAR_TITLE_RATIO or (same_target and ratio >= SIMILAR_TITLE_RATIO_SAME_TARGET):
+            if best is None or ratio > best[1]:
+                best = (it, ratio)
+    return best[0] if best else None
+
+
 def _merge(items: list[dict[str, Any]], s: dict[str, Any], source: str, now: float) -> str:
-    """把一条建议并入池：命中已有（dup_of 或指纹相同）就累计复现，否则新增。返回 new/recurred/reopened。"""
+    """把一条建议并入池：命中已有（dup_of / 指纹 / 相似标题）就累计复现，否则新增。返回 new/recurred/reopened。"""
     by_id = {it["id"]: it for it in items}
-    hit = by_id.get(str(s.get("dup_of") or "")) or by_id.get(_fingerprint(s))
+    exact = by_id.get(str(s.get("dup_of") or "")) or by_id.get(_fingerprint(s))
+    hit = exact or _similar_item(items, s)
     if hit is not None:
+        if hit is not exact:                 # 相似合并：留痕是谁并进来的，便于事后核对
+            fid = _fingerprint(s)
+            hit.setdefault("merged_from", [])
+            if fid not in hit["merged_from"]:
+                hit["merged_from"].append(fid)
         if source not in hit["sources"]:
             hit["sources"].append(source)
             hit["occurrences"] += 1
